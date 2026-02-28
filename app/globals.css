@@ -44,6 +44,7 @@
 * {
   box-sizing: border-box;
   caret-color: transparent;
+  scrollbar-width: none;
 }
 
 input,
@@ -51,9 +52,22 @@ textarea {
   caret-color: auto;
 }
 
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+html {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
+  overscroll-behavior: none;
   background: var(--bg);
   color: var(--text);
   transition:
@@ -64,6 +78,7 @@ body {
 h1,
 h2,
 h3,
+h4,
 p {
   margin: 0;
 }
@@ -72,7 +87,19 @@ p {
   max-width: 620px;
   margin: 0 auto;
   min-height: 100vh;
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: none;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
   padding: calc(env(safe-area-inset-top) + 0.9rem) 1rem calc(env(safe-area-inset-bottom) + 5.25rem);
+}
+
+.shell::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 .appHeader {
@@ -274,6 +301,10 @@ h3 {
   gap: 0.85rem;
 }
 
+.dashboardView {
+  margin-top: 0.76rem;
+}
+
 .flash {
   margin-top: 0.72rem;
   padding: 0.64rem 0.76rem;
@@ -303,10 +334,66 @@ h3 {
   background: var(--surface-soft);
 }
 
-.odometer {
-  font-size: 1.66rem;
-  margin: 0.24rem 0 0.96rem;
-  letter-spacing: -0.012em;
+.dashboardMileageCard {
+  position: relative;
+  display: grid;
+  gap: 0.34rem;
+}
+
+.dashboardSectionHead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding-right: 2.5rem;
+}
+
+.dashboardSectionHead h2 {
+  margin: 0;
+}
+
+.dashboardMileageValue {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.dashboardMileageValue.compact {
+  font-size: 1.28rem;
+}
+
+.dashboardMileageValue.xcompact {
+  font-size: 1.08rem;
+  letter-spacing: -0.01em;
+}
+
+.odometerEditButton {
+  position: absolute;
+  top: 0.62rem;
+  right: 0.62rem;
+  width: 1.72rem;
+  height: 1.72rem;
+  min-height: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: var(--surface-soft);
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+}
+
+.odometerEditButton svg {
+  width: 0.86rem;
+  height: 0.86rem;
+  display: block;
+}
+
+.dashboardMileageHint {
+  margin-top: 0.06rem;
 }
 
 label {
@@ -372,35 +459,394 @@ button:disabled {
   width: 100%;
 }
 
-.metric + .metric {
-  margin-top: 1rem;
+.dashboardMaintenanceCard {
+  display: grid;
+  gap: 0.68rem;
 }
 
-.metricTop {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 0.6rem;
-  margin-bottom: 0.4rem;
-  font-size: 0.84rem;
+.dashboardMaintenanceHead {
+  display: grid;
+  gap: 0.16rem;
 }
 
-.progressRoot {
-  width: 100%;
-  height: 8px;
-  border-radius: 999px;
-  overflow: hidden;
-  background: var(--surface-soft);
+.dashboardMaintenanceHead h3 {
+  margin: 0;
+}
+
+.dashboardMaintenanceList {
+  display: grid;
+  gap: 0.56rem;
+}
+
+.trackerItem {
   border: 1px solid var(--line);
-  margin-bottom: 0.52rem;
+  border-radius: 0.9rem;
+  background: var(--surface-soft);
+  padding: 0.68rem;
 }
 
-.progressIndicator {
-  display: block;
+.trackerItemTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.58rem;
+  margin-bottom: 0.44rem;
+}
+
+.trackerItemTop h4 {
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.trackerStatus {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.trackerStatus.overdue {
+  color: var(--alert);
+}
+
+.trackerClock {
+  --tracker-progress: 0%;
+  width: 2.15rem;
+  height: 2.15rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: conic-gradient(var(--brand) var(--tracker-progress), var(--line) 0);
+  position: relative;
+  color: var(--text);
+}
+
+.trackerClock::before {
+  content: "";
+  width: calc(100% - 6px);
+  height: calc(100% - 6px);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  position: absolute;
+  inset: 3px;
+}
+
+.trackerClock svg {
+  position: relative;
+  width: 1.02rem;
+  height: 1.02rem;
+}
+
+.trackerClock.overdue {
+  background: conic-gradient(var(--alert) var(--tracker-progress), var(--line) 0);
+}
+
+.trackerMeta {
+  margin-top: 1.04rem;
+  padding-top: 1.06rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.36rem;
+  text-align: center;
+  position: relative;
+}
+
+.trackerMeta p {
+  display: grid;
+  gap: 0.06rem;
+  justify-items: center;
+  align-items: center;
+}
+
+.trackerClockFloatingWrap {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translate(-50%, -52%);
+  display: inline-flex;
+}
+
+.trackerMeta span {
+  font-size: 0.63rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.trackerMeta strong {
+  font-size: 0.78rem;
+}
+
+.trackerLogButton {
+  margin-top: 0.74rem;
+  min-height: 38px;
   width: 100%;
-  height: 100%;
-  background: var(--brand);
-  transition: transform 0.32s ease;
+}
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  height: 100dvh;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.42);
+  padding: 1rem;
+}
+
+.modalCard {
+  width: min(360px, calc(100vw - 2rem));
+  border-radius: 1rem;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--text);
+  padding: 0.88rem;
+  box-shadow: var(--shadow);
+}
+
+.modalTitle {
+  margin: 0;
+  font-size: 1.04rem;
+}
+
+.modalMessage {
+  margin-top: 0.42rem;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.modalVehicleName {
+  margin-top: 0.16rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.modalSubtext {
+  margin-top: 0.26rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.modalInputWrap {
+  margin-top: 0.62rem;
+}
+
+.modalInputWrap input {
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.modalInputWrap select {
+  font-size: 16px;
+}
+
+.modalActions {
+  margin-top: 0.72rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.48rem;
+}
+
+.modalButton {
+  width: 100%;
+}
+
+.modalButton.secondary {
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+@media (max-width: 640px) {
+  .modalOverlay {
+    padding-top: max(0.9rem, env(safe-area-inset-top));
+    padding-bottom: max(0.9rem, env(safe-area-inset-bottom));
+  }
+}
+
+.calendarView {
+  margin-top: 0.64rem;
+}
+
+.calendarPlanner {
+  border-radius: 1.05rem;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 0.88rem 0.88rem 0.52rem;
+  min-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 11.2rem);
+  display: grid;
+  gap: 0.74rem;
+}
+
+.calendarPlannerToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.calendarPlannerVehicle {
+  font-size: 0.86rem;
+  color: var(--muted);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.calendarTodayButton {
+  min-height: 34px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--text);
+  padding: 0.32rem 0.8rem;
+  font-size: 0.78rem;
+}
+
+.calendarMonthList {
+  display: grid;
+  gap: 0.95rem;
+}
+
+.calendarMonthSection {
+  display: grid;
+  gap: 0.45rem;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.85rem;
+}
+
+.calendarMonthSection:last-child {
+  border-bottom: 0;
+  padding-bottom: 0.2rem;
+}
+
+.calendarMonthHead h3 {
+  margin: 0;
+  font-size: 1.08rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.calendarWeekdaysRow {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.16rem;
+}
+
+.calendarWeekdaysRow span {
+  text-align: center;
+  font-size: 0.73rem;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.calendarMonthGrid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.18rem;
+}
+
+.calendarDayGhost {
+  min-height: 37px;
+}
+
+.calendarDayCell {
+  min-height: 37px;
+  border-radius: 0.66rem;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  padding: 0.24rem 0.1rem;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.calendarDayCell.today {
+  border-color: rgba(111, 98, 255, 0.5);
+  background: rgba(111, 98, 255, 0.14);
+}
+
+.calendarDayCell.marked {
+  border-color: var(--line);
+  background: var(--surface-soft);
+}
+
+.calendarDayNumber {
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.calendarDayDots {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.14rem;
+  min-height: 0.26rem;
+}
+
+.calendarDot {
+  width: 0.23rem;
+  height: 0.23rem;
+  border-radius: 999px;
+  background: var(--line-strong);
+}
+
+.calendarDot.oil,
+.calendarDot.tire {
+  background: #ff4f4f;
+}
+
+.calendarDot.custom {
+  background: #7b6bff;
+}
+
+.calendarComposerCard {
+  width: min(420px, calc(100vw - 2rem));
+}
+
+.calendarComposerRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.46rem;
+}
+
+.calendarComposerExisting {
+  margin-top: 0.62rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.58rem;
+}
+
+.calendarComposerExisting .tiny {
+  margin-top: 0;
+}
+
+.calendarComposerExisting ul {
+  margin: 0.38rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.32rem;
+}
+
+.calendarComposerExisting li {
+  border: 1px solid var(--line);
+  border-radius: 0.62rem;
+  padding: 0.42rem 0.48rem;
+  background: var(--surface-soft);
+  display: grid;
+  gap: 0.1rem;
+}
+
+.calendarComposerExisting li strong {
+  font-size: 0.77rem;
+}
+
+.calendarComposerExisting li span {
+  font-size: 0.72rem;
+  color: var(--muted);
 }
 
 .buttonRow {
@@ -450,6 +896,8 @@ button:disabled {
   height: 240px;
   object-fit: contain;
   object-position: center;
+  transform: translateX(var(--vehicle-image-shift-x, 0px)) scale(var(--vehicle-image-scale, 1));
+  transform-origin: center center;
 }
 
 .vehicleSelectName {
@@ -514,6 +962,8 @@ button:disabled {
   object-position: center;
   border-radius: 0.7rem;
   display: block;
+  transform: translateX(var(--vehicle-image-shift-x, 0px)) scale(var(--vehicle-image-scale, 1));
+  transform-origin: center center;
 }
 
 .vehicleDetailName {
@@ -524,7 +974,8 @@ button:disabled {
 }
 
 .dashboardVehicleCard {
-  padding: 0.76rem;
+  padding: 0.76rem 0.76rem 0.38rem;
+  border: 0;
 }
 
 .dashboardVehicleFrame {
@@ -533,6 +984,8 @@ button:disabled {
 
 .dashboardVehicleName {
   font-size: 1.32rem;
+  margin-top: 0.34rem;
+  margin-bottom: 0.12rem;
 }
 
 .iconBackButton {
@@ -729,18 +1182,16 @@ button:disabled {
 }
 
 .tabTrigger {
-  min-height: 52px;
+  min-height: 50px;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.16rem;
   border: 1px solid transparent;
   border-radius: 999px;
   background: transparent;
   color: #f4f6f8;
   opacity: 0.8;
-  padding: 0.28rem 0.16rem 0.3rem;
+  padding: 0.22rem 0.16rem;
   font-weight: 500;
   transition:
     opacity 160ms ease,
@@ -766,8 +1217,21 @@ button:disabled {
 }
 
 .tabIcon {
-  width: 1.34rem;
-  height: 1.34rem;
+  width: 1.52rem;
+  height: 1.52rem;
+}
+
+.tabIconAsset {
+  display: block;
+  background-color: currentColor;
+  -webkit-mask-image: var(--icon-url);
+  mask-image: var(--icon-url);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
 }
 
 @media (min-width: 540px) {
