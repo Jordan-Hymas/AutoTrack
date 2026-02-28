@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:https": "bash Scripts/dev-https-test.sh",
+    "tunnel:https": "bash Scripts/open-https-tunnel.sh",
     "build": "next build",
     "start": "next start",
     "images:webp": "bash Scripts/convert-vehicles-to-webp.sh"
