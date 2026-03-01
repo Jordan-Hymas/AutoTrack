@@ -4,17 +4,15 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "dev:https": "bash Scripts/dev-https-test.sh",
-    "tunnel:https": "bash Scripts/open-https-tunnel.sh",
     "build": "next build",
-    "start": "next start",
-    "images:webp": "bash Scripts/convert-vehicles-to-webp.sh"
+    "start": "next start"
   },
   "dependencies": {
-    "@radix-ui/react-progress": "^1.1.7",
     "@radix-ui/react-tabs": "^1.1.10",
+    "better-sqlite3": "^12.6.2",
     "next": "^15.2.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "web-push": "^3.6.7"
   }
 }

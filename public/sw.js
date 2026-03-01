@@ -1,5 +1,10 @@
 const CACHE_NAME = "autotrack-shell-v1";
-const APP_SHELL = ["/", "/manifest.webmanifest", "/icons/icon-192.png"];
+const APP_SHELL = [
+  "/",
+  "/manifest.webmanifest",
+  "/icons/white-icon-192.png",
+  "/icons/icon-192.png"
+];
 const HIDDEN_NOTIFICATION_TITLE = "\u2060";
 
 self.addEventListener("install", (event) => {
@@ -51,8 +56,8 @@ self.addEventListener("push", (event) => {
   const title = HIDDEN_NOTIFICATION_TITLE;
   const options = {
     body: payload.body || "Maintenance reminder available.",
-    icon: "/icons/icon-192.png",
-    badge: "/icons/icon-192.png",
+    icon: payload.icon || "/icons/white-icon-192.png",
+    badge: payload.icon || "/icons/white-icon-192.png",
     data: {
       url: payload.url || "/"
     }
@@ -100,8 +105,24 @@ self.addEventListener("notificationclick", (event) => {
 });
 
 self.addEventListener("pushsubscriptionchange", (event) => {
-  // Future hook: re-subscribe and sync new subscription with backend.
-  event.waitUntil(Promise.resolve());
+  event.waitUntil(
+    (async () => {
+      try {
+        const applicationServerKey = event.oldSubscription?.options?.applicationServerKey;
+        const subscription = await self.registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          ...(applicationServerKey ? { applicationServerKey } : {})
+        });
+        await fetch("/api/push/subscribe", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ subscription })
+        });
+      } catch {
+        // Re-subscription will be retried when the app opens.
+      }
+    })()
+  );
 });
 
 self.addEventListener("message", (event) => {
@@ -110,8 +131,8 @@ self.addEventListener("message", (event) => {
   const title = HIDDEN_NOTIFICATION_TITLE;
   const options = {
     body: payload.body || "Maintenance reminder available.",
-    icon: payload.icon || "/icons/icon-192.png",
-    badge: payload.icon || "/icons/icon-192.png",
+    icon: payload.icon || "/icons/white-icon-192.png",
+    badge: payload.icon || "/icons/white-icon-192.png",
     data: {
       url: payload.url || "/"
     }

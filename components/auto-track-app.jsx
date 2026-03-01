@@ -1,14 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import * as Tabs from "@radix-ui/react-tabs";
 import {
   STORAGE_KEY,
   createInitialState,
   getMaintenanceStats,
   getSelectedVehicle,
+  loadState,
   reducer
 } from "../lib/autotrack-model";
+import {
+  buildServiceNotificationBody,
+  getNotificationStage,
+  getNotificationStageKey,
+  getServiceLabel
+} from "../lib/notifications/maintenance-notifications.js";
 
 const THEME_STORAGE_KEY = "autotrack_theme_pref_v1";
 const THEME_OPTIONS = ["system", "light", "dark"];
@@ -18,13 +26,27 @@ const VAPID_KEY_STORAGE_KEY = "autotrack_vapid_public_key_v1";
 const AUTO_NOTIFICATION_STATE_STORAGE_KEY = "autotrack_auto_notification_state_v1";
 const HIDDEN_NOTIFICATION_TITLE = "\u2060";
 const TAB_OPTIONS = ["vehicles", "history", "dashboard", "reminders", "settings"];
-const DEFAULT_PWA_ICON = "/icons/apple-touch-icon.png";
-const PWA_ICON_PRESETS = [
-  { label: "AutoTrack iOS", path: "/icons/apple-touch-icon.png" },
-  { label: "AutoTrack 192", path: "/icons/icon-192.png" },
-  { label: "AutoTrack 512", path: "/icons/icon-512.png" },
-  { label: "Logo Idea", path: "/icons/logoIdea.png" }
+const APP_ICON_SETS = [
+  {
+    id: "classic",
+    label: "Classic",
+    appleTouch: "/icons/apple-touch-icon.png",
+    icon192: "/icons/icon-192.png",
+    icon512: "/icons/icon-512.png",
+    notification: "/icons/icon-192.png"
+  },
+  {
+    id: "white",
+    label: "White",
+    appleTouch: "/icons/white-icon-apple-touch.png",
+    icon192: "/icons/white-icon-192.png",
+    icon512: "/icons/white-icon-512.png",
+    notification: "/icons/white-icon-192.png",
+    legacyOriginal: "/icons/whiteIcon.png"
+  }
 ];
+const DEFAULT_APP_ICON_SET = APP_ICON_SETS[1];
+const DEFAULT_PWA_ICON = DEFAULT_APP_ICON_SET.appleTouch;
 const DEFAULT_PWA_SETTINGS = {
   launchTab: "dashboard",
   resumeLastTab: true,
@@ -57,8 +79,7 @@ const MONTH_NAMES_FULL = [
 ];
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const CALENDAR_MONTH_COUNT = 12;
-const AUTO_NOTIFICATION_SOON_DAYS = 7;
-const AUTO_NOTIFICATION_POLL_MS = 60 * 1000;
+const AUTO_NOTIFICATION_POLL_MS = 15 * 1000;
 const REMINDER_DEFAULT = "15m";
 const REMINDER_PRESETS = [
   { value: "15m", label: "15 Minutes Before" },
@@ -408,11 +429,6 @@ function urlBase64ToUint8Array(base64String) {
   return Uint8Array.from(rawData, (char) => char.charCodeAt(0));
 }
 
-function formatEndpointPreview(endpoint) {
-  if (!endpoint) return "Not available";
-  if (endpoint.length <= 56) return endpoint;
-  return `${endpoint.slice(0, 38)}...${endpoint.slice(-14)}`;
-}
 
 function getNotificationContextInfo() {
   if (typeof window === "undefined") {
@@ -437,8 +453,25 @@ function isValidTab(value) {
   return TAB_OPTIONS.includes(value);
 }
 
+function resolveAppIconSet(appIconPath) {
+  const normalizedPath = typeof appIconPath === "string" ? appIconPath.trim() : "";
+  if (!normalizedPath) return DEFAULT_APP_ICON_SET;
+
+  return (
+    APP_ICON_SETS.find(
+      (iconSet) =>
+        iconSet.appleTouch === normalizedPath ||
+        iconSet.icon192 === normalizedPath ||
+        iconSet.icon512 === normalizedPath ||
+        iconSet.notification === normalizedPath ||
+        iconSet.legacyOriginal === normalizedPath
+    ) || DEFAULT_APP_ICON_SET
+  );
+}
+
 function normalizePwaSettings(raw) {
   if (!raw || typeof raw !== "object") return { ...DEFAULT_PWA_SETTINGS };
+  const iconSet = resolveAppIconSet(raw.appIcon);
   return {
     launchTab: isValidTab(raw.launchTab) ? raw.launchTab : DEFAULT_PWA_SETTINGS.launchTab,
     resumeLastTab:
@@ -446,11 +479,118 @@ function normalizePwaSettings(raw) {
     offlineReady:
       typeof raw.offlineReady === "boolean" ? raw.offlineReady : DEFAULT_PWA_SETTINGS.offlineReady,
     pushAlerts: typeof raw.pushAlerts === "boolean" ? raw.pushAlerts : DEFAULT_PWA_SETTINGS.pushAlerts,
-    appIcon:
-      typeof raw.appIcon === "string" && raw.appIcon.trim()
-        ? raw.appIcon.trim()
-        : DEFAULT_PWA_SETTINGS.appIcon
+    appIcon: iconSet.appleTouch
   };
+}
+
+function normalizeAutoNotificationState(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const next = {};
+  Object.entries(raw).forEach(([key, value]) => {
+    if (typeof key === "string" && typeof value === "string") {
+      next[key] = value;
+    }
+  });
+  return next;
+}
+
+function createDefaultStorageSnapshot() {
+  return {
+    state: createInitialState(),
+    calendarEvents: {},
+    settings: {
+      themePreference: "light",
+      pwaSettings: { ...DEFAULT_PWA_SETTINGS },
+      vapidPublicKey: "",
+      autoNotificationState: {},
+      lastTab: "dashboard"
+    }
+  };
+}
+
+function readLegacySnapshotFromLocalStorage() {
+  const snapshot = createDefaultStorageSnapshot();
+  let hasLegacyData = false;
+
+  try {
+    if (localStorage.getItem(STORAGE_KEY)) {
+      snapshot.state = loadState();
+      hasLegacyData = true;
+    }
+  } catch {
+    // Ignore malformed legacy state.
+  }
+
+  try {
+    const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+    if (savedTheme && THEME_OPTIONS.includes(savedTheme)) {
+      snapshot.settings.themePreference = savedTheme;
+      hasLegacyData = true;
+    }
+  } catch {
+    // Ignore theme read failures.
+  }
+
+  try {
+    const rawPwaSettings = localStorage.getItem(PWA_SETTINGS_STORAGE_KEY);
+    if (rawPwaSettings) {
+      snapshot.settings.pwaSettings = normalizePwaSettings(JSON.parse(rawPwaSettings));
+      hasLegacyData = true;
+    }
+  } catch {
+    // Ignore malformed legacy PWA settings.
+  }
+
+  try {
+    const rawLastTab = localStorage.getItem(LAST_TAB_STORAGE_KEY);
+    if (rawLastTab && isValidTab(rawLastTab)) {
+      snapshot.settings.lastTab = rawLastTab;
+      hasLegacyData = true;
+    }
+  } catch {
+    // Ignore legacy tab read failures.
+  }
+
+  try {
+    const rawVapid = localStorage.getItem(VAPID_KEY_STORAGE_KEY);
+    if (typeof rawVapid === "string" && rawVapid.trim()) {
+      snapshot.settings.vapidPublicKey = rawVapid.trim();
+      hasLegacyData = true;
+    }
+  } catch {
+    // Ignore legacy vapid read failures.
+  }
+
+  try {
+    const rawNotificationState = localStorage.getItem(AUTO_NOTIFICATION_STATE_STORAGE_KEY);
+    if (rawNotificationState) {
+      snapshot.settings.autoNotificationState = normalizeAutoNotificationState(
+        JSON.parse(rawNotificationState)
+      );
+      hasLegacyData = true;
+    }
+  } catch {
+    // Ignore malformed legacy notification state.
+  }
+
+  return { snapshot, hasLegacyData };
+}
+
+function clearLegacyLocalStorage() {
+  [
+    STORAGE_KEY,
+    THEME_STORAGE_KEY,
+    PWA_SETTINGS_STORAGE_KEY,
+    LAST_TAB_STORAGE_KEY,
+    VAPID_KEY_STORAGE_KEY,
+    AUTO_NOTIFICATION_STATE_STORAGE_KEY
+  ].forEach((key) => {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // Ignore local storage cleanup failures.
+    }
+  });
 }
 
 function remainingLabel(remainingMs) {
@@ -466,18 +606,6 @@ function remainingLabel(remainingMs) {
   if (remainingMs > -DAY_MS) return "Due today";
   const overdueDays = Math.max(1, Math.floor(Math.abs(remainingMs) / DAY_MS));
   return `Overdue by ${overdueDays} ${overdueDays === 1 ? "day" : "days"}`;
-}
-
-function dueDateTimeLabel(dateISO) {
-  const value = new Date(dateISO);
-  if (!Number.isFinite(value.getTime())) return "soon";
-  return value.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit"
-  });
 }
 
 function formatScheduleDate(dateISO) {
@@ -539,17 +667,6 @@ function getUpcomingServiceSchedule(
   return schedule;
 }
 
-function getServiceLabel(maintenanceType) {
-  return maintenanceType === "oil_change" ? "Oil Change" : "Tire Rotation";
-}
-
-function getNotificationStage(remainingMs) {
-  if (remainingMs < 0) return "overdue";
-  if (remainingMs <= DAY_MS) return "due_today";
-  if (remainingMs <= AUTO_NOTIFICATION_SOON_DAYS * DAY_MS) return "due_soon";
-  return null;
-}
-
 function NavIcon({ type }) {
   const iconAsset = NAV_ICON_ASSETS[type] || NAV_ICON_ASSETS.settings;
   return (
@@ -573,6 +690,8 @@ function MaintenanceMetric({
 }) {
   const overdue = remainingMs < 0;
   const progressPercent = Math.max(0, Math.min(100, Math.round(progress * 100)));
+  const complete = progressPercent >= 100;
+  const trackerClockClassName = `trackerClock ${complete ? "complete" : ""} ${overdue ? "overdue" : ""}`.trim();
 
   return (
     <div className={`trackerItem ${overdue ? "overdue" : ""}`}>
@@ -584,7 +703,7 @@ function MaintenanceMetric({
       <div className="trackerMeta">
         <span className="trackerClockFloatingWrap" aria-hidden="true">
           <span
-            className={`trackerClock ${overdue ? "overdue" : ""}`}
+            className={trackerClockClassName}
             style={{ "--tracker-progress": `${progressPercent}%` }}
           >
             <svg viewBox="0 0 24 24" fill="none">
@@ -621,15 +740,15 @@ export default function AutoTrackApp() {
   const [vehicleDetailId, setVehicleDetailId] = useState(null);
   const [installPrompt, setInstallPrompt] = useState(null);
   const [flash, setFlash] = useState("");
-  const [themePreference, setThemePreference] = useState("system");
+  const [themePreference, setThemePreference] = useState("light");
   const [pwaSettings, setPwaSettings] = useState(DEFAULT_PWA_SETTINGS);
   const [settingsPage, setSettingsPage] = useState("main");
-  const [iconPathDraft, setIconPathDraft] = useState(DEFAULT_PWA_ICON);
   const [vapidPublicKey, setVapidPublicKey] = useState(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "");
   const [prefersDark, setPrefersDark] = useState(false);
   const [notificationPermission, setNotificationPermission] = useState("default");
   const [isStandalone, setIsStandalone] = useState(false);
   const [dashboardMenuOpen, setDashboardMenuOpen] = useState(false);
+  const [installGuideOpen, setInstallGuideOpen] = useState(false);
   const [odometerEditorOpen, setOdometerEditorOpen] = useState(false);
   const [odometerDraft, setOdometerDraft] = useState("");
   const [maintenanceConfirm, setMaintenanceConfirm] = useState(null);
@@ -646,11 +765,13 @@ export default function AutoTrackApp() {
     endpoint: "",
     error: ""
   });
+  const [maintenanceNowMs, setMaintenanceNowMs] = useState(() => Date.now());
   const dashboardMenuRef = useRef(null);
   const shellRef = useRef(null);
   const pwaSettingsLoadedRef = useRef(false);
   const autoNotificationStateRef = useRef({});
   const autoNotificationStateLoadedRef = useRef(false);
+  const persistSnapshotRef = useRef(() => {});
 
   const inspectPushConnection = useCallback(async () => {
     if (!("serviceWorker" in navigator)) {
@@ -709,19 +830,142 @@ export default function AutoTrackApp() {
     [state.vehicles, vehicleDetailId]
   );
   const resolvedTheme = themePreference === "system" ? (prefersDark ? "dark" : "light") : themePreference;
+  const currentIconSet = useMemo(() => resolveAppIconSet(pwaSettings.appIcon), [pwaSettings.appIcon]);
+  const selectedAppIconSetId = currentIconSet.id;
 
   const notify = (message) => setFlash(message);
   const updateState = (action) => setState((prev) => reducer(prev, action));
 
   useEffect(() => {
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      // Ignore storage errors; app still runs in-memory.
-    }
-    setState(createInitialState());
-    setHydrated(true);
+    let cancelled = false;
+
+    const loadSnapshot = async () => {
+      const defaultSnapshot = createDefaultStorageSnapshot();
+      let snapshotToApply = defaultSnapshot;
+
+      try {
+        const response = await fetch("/api/storage", { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error("Failed to load storage snapshot.");
+        }
+
+        const payload = await response.json();
+        const loadedSnapshot =
+          payload?.snapshot && typeof payload.snapshot === "object"
+            ? payload.snapshot
+            : defaultSnapshot;
+        const legacy = readLegacySnapshotFromLocalStorage();
+        const shouldMigrateLegacy = Boolean(payload?.meta?.isEmpty) && legacy.hasLegacyData;
+
+        if (shouldMigrateLegacy) {
+          const migrateResponse = await fetch("/api/storage", {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ snapshot: legacy.snapshot })
+          });
+          if (migrateResponse.ok) {
+            const migrated = await migrateResponse.json();
+            snapshotToApply =
+              migrated?.snapshot && typeof migrated.snapshot === "object"
+                ? migrated.snapshot
+                : legacy.snapshot;
+            clearLegacyLocalStorage();
+          } else {
+            snapshotToApply = legacy.snapshot;
+          }
+        } else {
+          snapshotToApply = loadedSnapshot;
+        }
+      } catch (error) {
+        console.error("Storage load failed:", error);
+      }
+
+      if (cancelled) return;
+
+      const nextState =
+        snapshotToApply?.state && Array.isArray(snapshotToApply.state.vehicles)
+          ? snapshotToApply.state
+          : defaultSnapshot.state;
+      const nextCalendarEvents =
+        snapshotToApply?.calendarEvents &&
+        typeof snapshotToApply.calendarEvents === "object" &&
+        !Array.isArray(snapshotToApply.calendarEvents)
+          ? snapshotToApply.calendarEvents
+          : {};
+      const nextSettings =
+        snapshotToApply?.settings && typeof snapshotToApply.settings === "object"
+          ? snapshotToApply.settings
+          : defaultSnapshot.settings;
+
+      setState(nextState);
+      setCalendarEvents(nextCalendarEvents);
+      setThemePreference(
+        nextSettings.themePreference && THEME_OPTIONS.includes(nextSettings.themePreference)
+          ? nextSettings.themePreference
+          : "light"
+      );
+      setPwaSettings(normalizePwaSettings(nextSettings.pwaSettings));
+      const envVapidPublicKey =
+        typeof process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY === "string"
+          ? process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY.trim()
+          : "";
+      const storedVapidPublicKey =
+        typeof nextSettings.vapidPublicKey === "string" ? nextSettings.vapidPublicKey.trim() : "";
+      setVapidPublicKey(storedVapidPublicKey || envVapidPublicKey);
+      autoNotificationStateRef.current = normalizeAutoNotificationState(
+        nextSettings.autoNotificationState
+      );
+      autoNotificationStateLoadedRef.current = true;
+      pwaSettingsLoadedRef.current = true;
+      setActiveTab("dashboard");
+      setHydrated(true);
+    };
+
+    loadSnapshot();
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  const persistSnapshot = useCallback(async () => {
+    if (!hydrated) return;
+    if (!pwaSettingsLoadedRef.current || !autoNotificationStateLoadedRef.current) return;
+
+    try {
+      await fetch("/api/storage", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          snapshot: {
+            state,
+            calendarEvents,
+            settings: {
+              themePreference,
+              pwaSettings,
+              vapidPublicKey,
+              autoNotificationState: autoNotificationStateRef.current,
+              lastTab: isValidTab(activeTab) ? activeTab : "dashboard"
+            }
+          }
+        })
+      });
+    } catch (error) {
+      console.error("Storage save failed:", error);
+    }
+  }, [activeTab, calendarEvents, hydrated, pwaSettings, state, themePreference, vapidPublicKey]);
+
+  useEffect(() => {
+    persistSnapshotRef.current = persistSnapshot;
+  }, [persistSnapshot]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!pwaSettingsLoadedRef.current || !autoNotificationStateLoadedRef.current) return;
+    const timeout = window.setTimeout(() => {
+      persistSnapshot();
+    }, 180);
+    return () => window.clearTimeout(timeout);
+  }, [activeTab, calendarEvents, hydrated, persistSnapshot, pwaSettings, state, themePreference, vapidPublicKey]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -747,6 +991,7 @@ export default function AutoTrackApp() {
       setSettingsPage("main");
     }
   }, [activeTab, settingsPage]);
+
 
   useEffect(() => {
     if (activeTab !== "vehicles" || !vehicleDetailId) return;
@@ -784,6 +1029,13 @@ export default function AutoTrackApp() {
     const timeout = setTimeout(() => setFlash(""), 2800);
     return () => clearTimeout(timeout);
   }, [flash]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setMaintenanceNowMs(Date.now());
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (!dashboardMenuOpen) return;
@@ -834,87 +1086,6 @@ export default function AutoTrackApp() {
   }, []);
 
   useEffect(() => {
-    const saved = localStorage.getItem(THEME_STORAGE_KEY);
-    if (saved && THEME_OPTIONS.includes(saved)) {
-      setThemePreference(saved);
-    }
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem(THEME_STORAGE_KEY, themePreference);
-  }, [themePreference]);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(PWA_SETTINGS_STORAGE_KEY);
-      const parsed = raw ? normalizePwaSettings(JSON.parse(raw)) : { ...DEFAULT_PWA_SETTINGS };
-      setPwaSettings(parsed);
-      const lastTab = localStorage.getItem(LAST_TAB_STORAGE_KEY);
-      const nextTab = parsed.resumeLastTab && isValidTab(lastTab) ? lastTab : parsed.launchTab;
-      if (isValidTab(nextTab)) {
-        setActiveTab(nextTab);
-      }
-    } catch {
-      setPwaSettings({ ...DEFAULT_PWA_SETTINGS });
-    } finally {
-      pwaSettingsLoadedRef.current = true;
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!pwaSettingsLoadedRef.current) return;
-    localStorage.setItem(PWA_SETTINGS_STORAGE_KEY, JSON.stringify(pwaSettings));
-    if (!pwaSettings.resumeLastTab) {
-      localStorage.removeItem(LAST_TAB_STORAGE_KEY);
-    }
-  }, [pwaSettings]);
-
-  useEffect(() => {
-    if (!pwaSettingsLoadedRef.current || !pwaSettings.resumeLastTab || !isValidTab(activeTab)) return;
-    localStorage.setItem(LAST_TAB_STORAGE_KEY, activeTab);
-  }, [activeTab, pwaSettings.resumeLastTab]);
-
-  useEffect(() => {
-    setIconPathDraft(pwaSettings.appIcon || DEFAULT_PWA_ICON);
-  }, [pwaSettings.appIcon]);
-
-  useEffect(() => {
-    const stored = localStorage.getItem(VAPID_KEY_STORAGE_KEY);
-    if (!stored) return;
-    setVapidPublicKey(stored);
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem(VAPID_KEY_STORAGE_KEY, vapidPublicKey || "");
-  }, [vapidPublicKey]);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(AUTO_NOTIFICATION_STATE_STORAGE_KEY);
-      if (!raw) {
-        autoNotificationStateRef.current = {};
-        return;
-      }
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        autoNotificationStateRef.current = {};
-        return;
-      }
-      const normalized = {};
-      Object.entries(parsed).forEach(([key, value]) => {
-        if (typeof key === "string" && typeof value === "string") {
-          normalized[key] = value;
-        }
-      });
-      autoNotificationStateRef.current = normalized;
-    } catch {
-      autoNotificationStateRef.current = {};
-    } finally {
-      autoNotificationStateLoadedRef.current = true;
-    }
-  }, []);
-
-  useEffect(() => {
     if (!("Notification" in window)) {
       setNotificationPermission("unsupported");
       return;
@@ -960,7 +1131,6 @@ export default function AutoTrackApp() {
   }, [resolvedTheme]);
 
   useEffect(() => {
-    const iconPath = pwaSettings.appIcon || DEFAULT_PWA_ICON;
     const setLink = (rel, href, sizes) => {
       const selector = sizes
         ? `link[rel="${rel}"][sizes="${sizes}"]`
@@ -972,13 +1142,13 @@ export default function AutoTrackApp() {
         if (sizes) link.setAttribute("sizes", sizes);
         document.head.appendChild(link);
       }
-      link.setAttribute("href", iconPath);
+      link.setAttribute("href", href);
     };
 
-    setLink("apple-touch-icon", iconPath);
-    setLink("icon", iconPath, "192x192");
-    setLink("icon", iconPath, "512x512");
-  }, [pwaSettings.appIcon]);
+    setLink("apple-touch-icon", currentIconSet.appleTouch);
+    setLink("icon", currentIconSet.icon192, "192x192");
+    setLink("icon", currentIconSet.icon512, "512x512");
+  }, [currentIconSet.appleTouch, currentIconSet.icon192, currentIconSet.icon512]);
 
   useEffect(() => {
     const installHandler = (event) => {
@@ -1005,7 +1175,6 @@ export default function AutoTrackApp() {
         vehicleId: selectedVehicle.id,
         odometer: odometerDraft
       });
-      notify("Mileage updated.");
       setOdometerEditorOpen(false);
     } catch (error) {
       window.alert(error.message || "Unable to update odometer.");
@@ -1275,6 +1444,62 @@ export default function AutoTrackApp() {
     setPwaSettings((prev) => ({ ...prev, ...partial }));
   };
 
+  const handleSetAppIconSet = (iconSetId) => {
+    const iconSet = APP_ICON_SETS.find((item) => item.id === iconSetId) || DEFAULT_APP_ICON_SET;
+    updatePwaSettings({ appIcon: iconSet.appleTouch });
+    notify("App icon updated. Re-add the Home Screen icon if you want the installed icon to refresh.");
+  };
+
+  const syncPushSubscriptionToServer = useCallback(
+    async (subscription, options = {}) => {
+      const { silent = true } = options;
+      if (!subscription) return false;
+
+      try {
+        const response = await fetch("/api/push/subscribe", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ subscription })
+        });
+        if (!response.ok) {
+          throw new Error("Subscription sync failed.");
+        }
+        return true;
+      } catch (error) {
+        if (!silent) {
+          notify(error?.message || "Unable to sync push subscription to server.");
+        }
+        return false;
+      }
+    },
+    []
+  );
+
+  const removePushSubscriptionFromServer = useCallback(async (endpoint) => {
+    if (typeof endpoint !== "string" || !endpoint.trim()) return false;
+    try {
+      await fetch("/api/push/subscribe", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ endpoint: endpoint.trim() })
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const triggerServerPushSweep = useCallback(async () => {
+    try {
+      await fetch("/api/push/sweep", {
+        method: "POST",
+        cache: "no-store"
+      });
+    } catch {
+      // Server sweeps can also be triggered by cron. Ignore transient failures here.
+    }
+  }, []);
+
   const requestNotificationPermission = async () => {
     if (!("Notification" in window)) {
       setNotificationPermission("unsupported");
@@ -1304,12 +1529,6 @@ export default function AutoTrackApp() {
     return permission;
   };
 
-  const handleNotificationPermission = async () => {
-    const permission = await requestNotificationPermission();
-    if (permission !== "granted") return;
-    notify("Notification permission granted.");
-  };
-
   const handleConnectIPhoneNotifications = async () => {
     const permission = await requestNotificationPermission();
     if (permission !== "granted") return;
@@ -1335,8 +1554,8 @@ export default function AutoTrackApp() {
     try {
       await registration.showNotification(HIDDEN_NOTIFICATION_TITLE, {
         body: "Notifications connected. AutoTrack alerts are now enabled.",
-        icon: pwaSettings.appIcon || DEFAULT_PWA_ICON,
-        badge: pwaSettings.appIcon || DEFAULT_PWA_ICON,
+        icon: currentIconSet.notification,
+        badge: currentIconSet.notification,
         data: { url: "/" }
       });
     } catch {
@@ -1355,9 +1574,13 @@ export default function AutoTrackApp() {
           notify(error?.message || "Unable to create push subscription with this VAPID key.");
         }
       }
+      if (subscription) {
+        await syncPushSubscriptionToServer(subscription, { silent: false });
+      }
       await inspectPushConnection();
       if (subscription) {
-        notify("iPhone notification connection ready. Push subscription created.");
+        notify("iPhone notification connection ready. Background push is connected.");
+        triggerServerPushSweep();
       } else {
         notify("Connected for local tests. Add a VAPID key to create a remote push subscription.");
       }
@@ -1384,46 +1607,31 @@ export default function AutoTrackApp() {
     scrollAppToTop();
   };
 
-  const handleApplyAppIcon = (nextPath) => {
-    const trimmed = String(nextPath || "").trim() || DEFAULT_PWA_ICON;
-    updatePwaSettings({ appIcon: trimmed });
-    notify("App icon preference saved. Re-add to Home Screen on iPhone to refresh icon.");
-  };
-
-  const handleSaveVapidKey = () => {
-    const trimmed = vapidPublicKey.trim();
-    setVapidPublicKey(trimmed);
-    notify(trimmed ? "VAPID public key saved." : "VAPID key cleared.");
-    inspectPushConnection();
-  };
-
   const buildVehicleServiceNotification = useCallback(
     (vehicle, maintenanceType, stage = "due_soon") => {
       const stats = getMaintenanceStats(vehicle);
       const isOil = maintenanceType === "oil_change";
-      const serviceLabel = getServiceLabel(maintenanceType);
       const remainingMs = isOil ? stats.oilRemainingMs : stats.tireRemainingMs;
       const dueDateISO = isOil ? stats.oilDueDateISO : stats.tireDueDateISO;
-      const remaining = remainingLabel(remainingMs);
-      const dueAt = dueDateTimeLabel(dueDateISO);
-
-      let body = `${serviceLabel} due soon for ${vehicle.name}: ${remaining}. Due ${dueAt}.`;
-      if (stage === "due_today") {
-        body = `${serviceLabel} is due today for ${vehicle.name}.`;
-      } else if (stage === "overdue") {
-        body = `${serviceLabel} is overdue for ${vehicle.name}: ${remaining}.`;
-      } else if (stage === "preview") {
-        body = `${serviceLabel} due soon for ${vehicle.name}. Current schedule: ${remaining}.`;
-      }
+      const body =
+        stage === "preview"
+          ? `${getServiceLabel(maintenanceType)} due soon for ${vehicle.name}. Current schedule: ${remainingLabel(remainingMs)}.`
+          : buildServiceNotificationBody({
+              vehicleName: vehicle.name,
+              maintenanceType,
+              stage,
+              remainingMs,
+              dueDateISO
+            });
 
       return {
         title: HIDDEN_NOTIFICATION_TITLE,
         body,
-        icon: pwaSettings.appIcon || DEFAULT_PWA_ICON,
+        icon: currentIconSet.notification,
         url: "/"
       };
     },
-    [pwaSettings.appIcon]
+    [currentIconSet.notification]
   );
 
   const buildDevNotificationPayload = useCallback(
@@ -1437,7 +1645,7 @@ export default function AutoTrackApp() {
         return {
           title: HIDDEN_NOTIFICATION_TITLE,
           body: "Notifications connected successfully. You're ready to receive reminders.",
-          icon: pwaSettings.appIcon || DEFAULT_PWA_ICON,
+          icon: currentIconSet.notification,
           url: "/"
         };
       }
@@ -1446,7 +1654,7 @@ export default function AutoTrackApp() {
         return {
           title: HIDDEN_NOTIFICATION_TITLE,
           body: `Reminder: update the odometer for ${vehicleName}.`,
-          icon: pwaSettings.appIcon || DEFAULT_PWA_ICON,
+          icon: currentIconSet.notification,
           url: "/"
         };
       }
@@ -1454,11 +1662,11 @@ export default function AutoTrackApp() {
       return {
         title: HIDDEN_NOTIFICATION_TITLE,
         body: "Test notification delivered. Alerts are working.",
-        icon: pwaSettings.appIcon || DEFAULT_PWA_ICON,
+        icon: currentIconSet.notification,
         url: "/"
       };
     },
-    [selectedVehicle, pwaSettings.appIcon, buildVehicleServiceNotification]
+    [selectedVehicle, currentIconSet.notification, buildVehicleServiceNotification]
   );
 
   const sendServiceWorkerNotification = async (payload, successMessage, options = {}) => {
@@ -1483,7 +1691,7 @@ export default function AutoTrackApp() {
         type: "DEV_TEST_NOTIFICATION",
         title: payload?.title ?? HIDDEN_NOTIFICATION_TITLE,
         body: payload?.body || "New maintenance reminder.",
-        icon: payload?.icon || pwaSettings.appIcon || DEFAULT_PWA_ICON,
+        icon: payload?.icon || currentIconSet.notification,
         url: payload?.url || "/"
       };
 
@@ -1509,14 +1717,7 @@ export default function AutoTrackApp() {
   };
 
   const persistAutoNotificationState = useCallback(() => {
-    try {
-      localStorage.setItem(
-        AUTO_NOTIFICATION_STATE_STORAGE_KEY,
-        JSON.stringify(autoNotificationStateRef.current)
-      );
-    } catch {
-      // Ignore storage errors for local notification state.
-    }
+    persistSnapshotRef.current();
   }, []);
 
   const handleSendServiceWorkerDevNotification = async (notificationType = "test") => {
@@ -1544,6 +1745,20 @@ export default function AutoTrackApp() {
   const handlePushAlertsToggle = async () => {
     if (pwaSettings.pushAlerts) {
       updatePwaSettings({ pushAlerts: false });
+      if ("serviceWorker" in navigator) {
+        try {
+          const registration = await navigator.serviceWorker.getRegistration();
+          if (registration && "PushManager" in window) {
+            const subscription = await registration.pushManager.getSubscription();
+            if (subscription) {
+              await removePushSubscriptionFromServer(subscription.endpoint);
+              await subscription.unsubscribe();
+            }
+          }
+        } catch {
+          // Ignore disconnect failures and keep local settings update.
+        }
+      }
       notify("Push alerts turned off.");
       return;
     }
@@ -1552,63 +1767,122 @@ export default function AutoTrackApp() {
 
   useEffect(() => {
     if (!hydrated) return;
+    if (!pwaSettings.pushAlerts || !pwaSettings.offlineReady) return;
+    if (notificationPermission !== "granted") return;
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+
+    let disposed = false;
+
+    const syncServerPushState = async () => {
+      if (disposed) return;
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        if (!registration) return;
+
+        let subscription = await registration.pushManager.getSubscription();
+        if (!subscription && vapidPublicKey?.trim()) {
+          subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(vapidPublicKey.trim())
+          });
+        }
+        if (!subscription || disposed) return;
+
+        await syncPushSubscriptionToServer(subscription, { silent: true });
+        if (!disposed) {
+          await triggerServerPushSweep();
+        }
+      } catch {
+        // Ignore background sync failures; manual connect + cron can still deliver push.
+      }
+    };
+
+    syncServerPushState();
+    const timer = window.setInterval(syncServerPushState, 60 * 1000);
+    window.addEventListener("focus", syncServerPushState);
+    window.addEventListener("pageshow", syncServerPushState);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", syncServerPushState);
+      window.removeEventListener("pageshow", syncServerPushState);
+    };
+  }, [
+    hydrated,
+    pwaSettings.pushAlerts,
+    pwaSettings.offlineReady,
+    notificationPermission,
+    vapidPublicKey,
+    syncPushSubscriptionToServer,
+    triggerServerPushSweep
+  ]);
+
+  useEffect(() => {
+    if (!hydrated) return;
     if (!autoNotificationStateLoadedRef.current) return;
     if (!pwaSettings.pushAlerts || !pwaSettings.offlineReady) return;
     if (notificationPermission !== "granted") return;
 
     let disposed = false;
+    let sweepInProgress = false;
 
     const runAutoNotificationSweep = async () => {
       if (disposed) return;
+      if (sweepInProgress) return;
+      sweepInProgress = true;
       let stateChanged = false;
 
-      for (const vehicle of state.vehicles) {
-        if (disposed) return;
-        const stats = getMaintenanceStats(vehicle);
-        const checks = [
-          {
-            maintenanceType: "oil_change",
-            remainingMs: stats.oilRemainingMs,
-            dueDateISO: stats.oilDueDateISO
-          },
-          {
-            maintenanceType: "tire_rotation",
-            remainingMs: stats.tireRemainingMs,
-            dueDateISO: stats.tireDueDateISO
-          }
-        ];
-
-        for (const item of checks) {
+      try {
+        for (const vehicle of state.vehicles) {
           if (disposed) return;
-          const stage = getNotificationStage(item.remainingMs);
-          const mapKey = `${vehicle.id}:${item.maintenanceType}`;
-
-          if (!stage) {
-            if (autoNotificationStateRef.current[mapKey]) {
-              delete autoNotificationStateRef.current[mapKey];
-              stateChanged = true;
+          const stats = getMaintenanceStats(vehicle);
+          const checks = [
+            {
+              maintenanceType: "oil_change",
+              remainingMs: stats.oilRemainingMs,
+              dueDateISO: stats.oilDueDateISO,
+              windowMs: stats.oilWindowMs
+            },
+            {
+              maintenanceType: "tire_rotation",
+              remainingMs: stats.tireRemainingMs,
+              dueDateISO: stats.tireDueDateISO,
+              windowMs: stats.tireWindowMs
             }
-            continue;
+          ];
+
+          for (const item of checks) {
+            if (disposed) return;
+            const stage = getNotificationStage(item.remainingMs, item.windowMs);
+            const mapKey = `${vehicle.id}:${item.maintenanceType}`;
+
+            if (!stage) {
+              if (autoNotificationStateRef.current[mapKey]) {
+                delete autoNotificationStateRef.current[mapKey];
+                stateChanged = true;
+              }
+              continue;
+            }
+
+            const stageKey = getNotificationStageKey(stage, item.dueDateISO);
+            if (autoNotificationStateRef.current[mapKey] === stageKey) {
+              continue;
+            }
+
+            const payload = buildVehicleServiceNotification(vehicle, item.maintenanceType, stage);
+            const sent = await sendServiceWorkerNotification(payload, "", {
+              silent: true,
+              ensurePermission: false
+            });
+            if (!sent || disposed) continue;
+
+            autoNotificationStateRef.current[mapKey] = stageKey;
+            stateChanged = true;
           }
-
-          const dueDateKey = Number.isFinite(Date.parse(item.dueDateISO))
-            ? new Date(item.dueDateISO).toISOString().slice(0, 10)
-            : "unknown";
-          const stageKey = `${stage}:${dueDateKey}`;
-          if (autoNotificationStateRef.current[mapKey] === stageKey) {
-            continue;
-          }
-
-          const payload = buildVehicleServiceNotification(vehicle, item.maintenanceType, stage);
-          const sent = await sendServiceWorkerNotification(payload, "", {
-            silent: true,
-            ensurePermission: false
-          });
-          if (!sent || disposed) continue;
-
-          autoNotificationStateRef.current[mapKey] = stageKey;
-          stateChanged = true;
         }
+      } finally {
+        sweepInProgress = false;
       }
 
       if (stateChanged) {
@@ -1618,10 +1892,22 @@ export default function AutoTrackApp() {
 
     runAutoNotificationSweep();
     const timer = window.setInterval(runAutoNotificationSweep, AUTO_NOTIFICATION_POLL_MS);
+    const runWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        runAutoNotificationSweep();
+      }
+    };
+
+    window.addEventListener("focus", runAutoNotificationSweep);
+    window.addEventListener("pageshow", runAutoNotificationSweep);
+    document.addEventListener("visibilitychange", runWhenVisible);
 
     return () => {
       disposed = true;
       window.clearInterval(timer);
+      window.removeEventListener("focus", runAutoNotificationSweep);
+      window.removeEventListener("pageshow", runAutoNotificationSweep);
+      document.removeEventListener("visibilitychange", runWhenVisible);
     };
   }, [
     hydrated,
@@ -1647,7 +1933,7 @@ export default function AutoTrackApp() {
     ? state.history.filter((entry) => entry.vehicleId === selectedVehicle.id)
     : [];
 
-  const stats = selectedVehicle ? getMaintenanceStats(selectedVehicle) : null;
+  const stats = selectedVehicle ? getMaintenanceStats(selectedVehicle, maintenanceNowMs) : null;
   const getVehicleImageStyle = (vehicle) =>
     vehicle?.imageScale || vehicle?.imageShiftX
       ? {
@@ -1720,12 +2006,6 @@ export default function AutoTrackApp() {
   const isSimpleTitleTab = isSettingsTab;
   const simpleTabTitle = "Settings";
   const vehicleProfile = vehicleDetail ? VEHICLE_PROFILE_VALUES[vehicleDetail.id] || {} : {};
-  const launchTabOptions = [
-    { value: "dashboard", label: "Dashboard" },
-    { value: "vehicles", label: "Vehicles" },
-    { value: "reminders", label: "Calendar" },
-    { value: "history", label: "History" }
-  ];
   const permissionLabel =
     notificationPermission === "granted"
       ? "Allowed"
@@ -1734,16 +2014,6 @@ export default function AutoTrackApp() {
         : notificationPermission === "unsupported"
           ? "Unsupported"
           : "Not Set";
-  const swStatusLabel = pushConnection.swReady ? "Ready" : "Not Ready";
-  const pushStatusLabel = !pushConnection.pushSupported
-    ? "Unsupported"
-    : pushConnection.subscribed
-      ? "Subscribed"
-      : pwaSettings.pushAlerts
-        ? "Permission Only"
-        : "Not Connected";
-  const endpointPreview = formatEndpointPreview(pushConnection.endpoint);
-
   return (
     <div className="shell" ref={shellRef}>
       <Tabs.Root value={activeTab} onValueChange={setActiveTab}>
@@ -2061,6 +2331,44 @@ export default function AutoTrackApp() {
           {settingsPage === "main" ? (
             <>
               <section className="card settingsCard">
+                <button
+                  type="button"
+                  className="installGuideToggle"
+                  onClick={() => setInstallGuideOpen((prev) => !prev)}
+                  aria-expanded={installGuideOpen}
+                >
+                  <div className="installGuideToggleText">
+                    <h3 style={{ margin: 0 }}>Install on iPhone</h3>
+                    <p className="tiny">Safari setup steps for PWA install and notifications.</p>
+                  </div>
+                  <svg
+                    className={`installGuideChevron ${installGuideOpen ? "open" : ""}`}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                {installGuideOpen && (
+                  <div className="installGuideBody">
+                    <ol className="installGuideList">
+                      <li>Open AutoTrack in Safari, not Chrome or another browser.</li>
+                      <li>Tap the Share button, then choose Add Bookmark (optional backup link).</li>
+                      <li>Tap Share again, choose Add to Home Screen, turn on Open as Web App, then tap Add.</li>
+                      <li>Open AutoTrack from your Home Screen icon to run in app mode.</li>
+                      <li>Go to Settings in AutoTrack and turn Push alerts On.</li>
+                      <li>When prompted, tap Allow notifications.</li>
+                      <li>On iPhone, go to Settings &gt; Notifications &gt; AutoTrack and verify alerts are enabled.</li>
+                    </ol>
+                    <p className="tiny settingsHint">
+                      If app icon or manifest settings change, remove the Home Screen icon and add it again.
+                    </p>
+                  </div>
+                )}
+              </section>
+
+              <section className="card settingsCard">
                 <div className="settingsHead">
                   <h2>Appearance</h2>
                   <p className="tiny">Keep the app readable in any environment.</p>
@@ -2101,57 +2409,24 @@ export default function AutoTrackApp() {
                       </button>
                     </div>
                   </div>
-                </div>
-              </section>
 
-              <section className="card settingsCard">
-                <div className="settingsHead">
-                  <h3>PWA Behavior</h3>
-                  <p className="tiny">Choose how the installed app opens and runs.</p>
-                </div>
-                <div className="settingsBody">
-                  <div className="settingsLaunch">
-                    <p className="settingsLabel">Start page</p>
-                    <div className="launchGrid">
-                      {launchTabOptions.map((option) => (
+                  <div className="modeGroup">
+                    <p className="settingsLabel">App icon</p>
+                    <div className="choiceGrid">
+                      {APP_ICON_SETS.map((iconSet) => (
                         <button
+                          key={iconSet.id}
                           type="button"
-                          key={option.value}
-                          className={`optionButton ${pwaSettings.launchTab === option.value ? "active" : ""}`}
-                          onClick={() => updatePwaSettings({ launchTab: option.value })}
+                          className={`optionButton ${selectedAppIconSetId === iconSet.id ? "active" : ""}`}
+                          onClick={() => handleSetAppIconSet(iconSet.id)}
                         >
-                          {option.label}
+                          {iconSet.label}
                         </button>
                       ))}
                     </div>
-                  </div>
-
-                  <div className="settingRow">
-                    <div>
-                      <strong>Resume last page</strong>
-                      <p className="tiny">Open where you left off last session.</p>
-                    </div>
-                    <button
-                      type="button"
-                      className={`switchButton ${pwaSettings.resumeLastTab ? "active" : ""}`}
-                      onClick={() => updatePwaSettings({ resumeLastTab: !pwaSettings.resumeLastTab })}
-                    >
-                      {pwaSettings.resumeLastTab ? "On" : "Off"}
-                    </button>
-                  </div>
-
-                  <div className="settingRow">
-                    <div>
-                      <strong>Offline ready mode</strong>
-                      <p className="tiny">Keep core screens available when connection is weak.</p>
-                    </div>
-                    <button
-                      type="button"
-                      className={`switchButton ${pwaSettings.offlineReady ? "active" : ""}`}
-                      onClick={() => updatePwaSettings({ offlineReady: !pwaSettings.offlineReady })}
-                    >
-                      {pwaSettings.offlineReady ? "On" : "Off"}
-                    </button>
+                    <p className="tiny settingsHint">
+                      If AutoTrack is already installed, remove and re-add it to Home Screen to apply icon changes.
+                    </p>
                   </div>
                 </div>
               </section>
@@ -2181,70 +2456,27 @@ export default function AutoTrackApp() {
                     <strong>{permissionLabel}</strong>
                   </div>
                   <div className="settingMetaRow">
-                    <span>Service Worker</span>
-                    <strong>{swStatusLabel}</strong>
-                  </div>
-                  <div className="settingMetaRow">
-                    <span>Push Status</span>
-                    <strong>{pushStatusLabel}</strong>
-                  </div>
-                  <div className="settingMetaRow endpointRow">
-                    <span>Endpoint</span>
-                    <strong>{endpointPreview}</strong>
-                  </div>
-                  <div className="settingMetaRow">
                     <span>App Mode</span>
                     <strong>{isStandalone ? "Installed" : "Browser"}</strong>
                   </div>
 
                   <div className="buttonRow settingsActions">
                     <button type="button" className="optionButton active" onClick={handleConnectIPhoneNotifications}>
-                      Connect iPhone Notifications
+                      Connect Notifications
                     </button>
-                    <button
-                      type="button"
-                      className="optionButton"
-                      onClick={() => handleSendServiceWorkerDevNotification("test")}
-                    >
-                      Send Test Notification
-                    </button>
-                  </div>
-                  <div className="buttonRow settingsActions">
                     {installPrompt && (
                       <button type="button" className="optionButton" onClick={handleInstallApp}>
                         Install App
                       </button>
                     )}
-                    <button type="button" className="optionButton" onClick={handleNotificationPermission}>
-                      Request Permission
-                    </button>
                   </div>
                 </div>
               </section>
 
               <section className="card settingsCard">
                 <div className="settingsHead">
-                  <h3>Install on iPhone (Safari)</h3>
-                  <p className="tiny">Apple-only setup steps for PWA install and notifications.</p>
-                </div>
-                <ol className="installGuideList">
-                  <li>Open AutoTrack in Safari, not Chrome or another browser.</li>
-                  <li>Tap the Share button, then choose Add Bookmark (optional backup link).</li>
-                  <li>Tap Share again, choose Add to Home Screen, turn on Open as Web App, then tap Add.</li>
-                  <li>Open AutoTrack from your Home Screen icon to run in app mode.</li>
-                  <li>Go to Settings in AutoTrack and turn Push alerts On.</li>
-                  <li>When prompted, tap Allow notifications.</li>
-                  <li>On iPhone, go to Settings &gt; Notifications &gt; AutoTrack and verify alerts are enabled.</li>
-                </ol>
-                <p className="tiny settingsHint">
-                  If app icon or manifest settings change, remove the Home Screen icon and add it again.
-                </p>
-              </section>
-
-              <section className="card settingsCard">
-                <div className="settingsHead">
                   <h3>Developer</h3>
-                  <p className="tiny">Open developer tools for notification and icon testing.</p>
+                  <p className="tiny">Open developer tools for notification testing.</p>
                 </div>
                 <button type="button" className="optionButton active" onClick={handleOpenDeveloperSettings}>
                   Open Developer Settings
@@ -2277,39 +2509,6 @@ export default function AutoTrackApp() {
               </div>
 
               <div className="settingsBody">
-                <section className="devBlock">
-                  <h3>Push Connection</h3>
-                  <p className="tiny">
-                    Optional VAPID key enables a real push subscription endpoint for backend tests.
-                  </p>
-                  <label className="modalInputWrap">
-                    VAPID Public Key
-                    <input
-                      type="text"
-                      value={vapidPublicKey}
-                      onChange={(event) => setVapidPublicKey(event.target.value)}
-                      placeholder="BEl... (public key)"
-                    />
-                  </label>
-                  <div className="buttonRow settingsActions">
-                    <button type="button" className="optionButton" onClick={handleSaveVapidKey}>
-                      Save VAPID Key
-                    </button>
-                    <button type="button" className="optionButton active" onClick={handleConnectIPhoneNotifications}>
-                      Connect Now
-                    </button>
-                  </div>
-                  <div className="settingMetaRow">
-                    <span>Push Status</span>
-                    <strong>{pushStatusLabel}</strong>
-                  </div>
-                  <div className="settingMetaRow endpointRow">
-                    <span>Endpoint</span>
-                    <strong>{endpointPreview}</strong>
-                  </div>
-                  {pushConnection.error && <p className="tiny">{pushConnection.error}</p>}
-                </section>
-
                 <section className="devBlock">
                   <h3>Notification Templates</h3>
                   <p className="tiny">
@@ -2384,42 +2583,10 @@ export default function AutoTrackApp() {
                     ))}
                   </div>
                   <p className="tiny">
-                    Service worker tests are closest to production push behavior. Remote push while app is closed still requires a backend push endpoint.
+                    Service worker tests are closest to production push behavior. Background delivery while app is closed requires the backend sweep endpoint to run on a schedule.
                   </p>
                 </section>
 
-                <section className="devBlock">
-                  <h3>PWA Icon Lab</h3>
-                  <p className="tiny">Choose an icon for testing installed app appearance on iPhone.</p>
-                  <div className="iconPresetGrid">
-                    {PWA_ICON_PRESETS.map((icon) => (
-                      <button
-                        type="button"
-                        key={icon.path}
-                        className={`iconPresetButton ${pwaSettings.appIcon === icon.path ? "active" : ""}`}
-                        onClick={() => handleApplyAppIcon(icon.path)}
-                      >
-                        <img src={icon.path} alt={icon.label} />
-                        <span>{icon.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                  <label className="modalInputWrap">
-                    Custom icon path
-                    <input
-                      type="text"
-                      value={iconPathDraft}
-                      onChange={(event) => setIconPathDraft(event.target.value)}
-                      placeholder="/icons/my-icon.png"
-                    />
-                  </label>
-                  <button type="button" className="optionButton" onClick={() => handleApplyAppIcon(iconPathDraft)}>
-                    Apply Custom Icon
-                  </button>
-                  <p className="tiny">
-                    iPhone caches Home Screen icons. Delete the Home Screen app and add it again to see icon changes.
-                  </p>
-                </section>
               </div>
             </section>
           )}
@@ -2446,7 +2613,9 @@ export default function AutoTrackApp() {
                         </div>
                         <div>
                           <dt>Odometer</dt>
-                          <dd>{formatMileage(selectedVehicle.odometer)}</dd>
+                          <dd className="serviceScheduleOdometerValue">
+                            {formatMileage(selectedVehicle.odometer)}
+                          </dd>
                         </div>
                         <div>
                           <dt>Last Tire Rotation</dt>
@@ -2487,7 +2656,9 @@ export default function AutoTrackApp() {
                         </div>
                         <div>
                           <dt>Odometer</dt>
-                          <dd>{formatMileage(selectedVehicle.odometer)}</dd>
+                          <dd className="serviceScheduleOdometerValue">
+                            {formatMileage(selectedVehicle.odometer)}
+                          </dd>
                         </div>
                         <div>
                           <dt>Last Oil Change</dt>
@@ -2511,7 +2682,7 @@ export default function AutoTrackApp() {
           </section>
         </Tabs.Content>
 
-        {odometerEditorOpen && selectedVehicle && (
+        {odometerEditorOpen && selectedVehicle && createPortal(
           <div className="modalOverlay" role="presentation">
             <div className="modalCard" role="dialog" aria-modal="true" aria-labelledby="odometer-modal-title">
               <h3 id="odometer-modal-title" className="modalTitle">Update Odometer</h3>
@@ -2537,7 +2708,8 @@ export default function AutoTrackApp() {
                 </button>
               </div>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
 
         {maintenanceConfirm && selectedVehicle && (
@@ -2885,6 +3057,7 @@ export default function AutoTrackApp() {
           </div>
         )}
 
+        <div className="tabbarUnderlay" aria-hidden="true" />
         <div className="tabbarDock">
           <Tabs.List className="tabbar" aria-label="Primary Navigation">
             <Tabs.Trigger className="tabTrigger" value="vehicles" onClick={handleVehiclesTabClick}>

@@ -18,6 +18,8 @@
   --field-label: #3e3e3e;
   --field-value: #606060;
   --alert: #d93025;
+  --tabbar-height: 64px;
+  --tabbar-bottom-offset: calc(env(safe-area-inset-bottom) - 0.28rem);
 }
 
 :root[data-theme="dark"] {
@@ -523,12 +525,13 @@ button:disabled {
 
 .trackerClock {
   --tracker-progress: 0%;
+  --tracker-progress-color: var(--alert);
   width: 2.15rem;
   height: 2.15rem;
   border-radius: 999px;
   display: grid;
   place-items: center;
-  background: conic-gradient(var(--brand) var(--tracker-progress), var(--line) 0);
+  background: conic-gradient(var(--tracker-progress-color) var(--tracker-progress), var(--line) 0);
   position: relative;
   color: var(--text);
 }
@@ -551,6 +554,12 @@ button:disabled {
 
 .trackerClock.overdue {
   background: conic-gradient(var(--alert) var(--tracker-progress), var(--line) 0);
+}
+
+.trackerClock.complete {
+  --tracker-progress: 100%;
+  --tracker-progress-color: #2ca043;
+  background: conic-gradient(#2ca043 100%, #2ca043 0);
 }
 
 .trackerMeta {
@@ -765,6 +774,10 @@ button:disabled {
   line-height: 1.32;
   font-weight: 700;
   color: var(--text);
+}
+
+.serviceScheduleMeta dd.serviceScheduleOdometerValue {
+  color: var(--alert);
 }
 
 @media (max-width: 460px) {
@@ -1492,6 +1505,45 @@ button:disabled {
   margin-top: 0.1rem;
 }
 
+.installGuideToggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  min-height: 0;
+  padding: 0;
+  color: var(--text);
+  font-weight: 400;
+  text-align: left;
+}
+
+.installGuideToggleText {
+  display: grid;
+  gap: 0.14rem;
+}
+
+.installGuideChevron {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: transform 0.2s ease;
+}
+
+.installGuideChevron.open {
+  transform: rotate(180deg);
+}
+
+.installGuideBody {
+  margin-top: 0.62rem;
+  padding-top: 0.62rem;
+  border-top: 1px solid var(--line);
+}
+
 .settingsHint {
   margin-top: 0;
 }
@@ -1599,10 +1651,22 @@ button:disabled {
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  bottom: calc(env(safe-area-inset-bottom) - 0.06rem);
-  width: min(620px, calc(100vw - 0.68rem));
+  bottom: var(--tabbar-bottom-offset);
+  width: min(608px, calc(100vw - 1rem));
   padding: 0 0.22rem;
   z-index: 40;
+}
+
+.tabbarUnderlay {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 0;
+  width: min(620px, 100vw);
+  height: max(0px, calc(var(--tabbar-height) + var(--tabbar-bottom-offset)));
+  background: var(--bg);
+  pointer-events: none;
+  z-index: 30;
 }
 
 .tabbar {
@@ -1675,6 +1739,12 @@ button:disabled {
   mask-size: contain;
 }
 
+@media (max-width: 539px) {
+  :root {
+    --tabbar-bottom-offset: calc(env(safe-area-inset-bottom) - 1.08rem);
+  }
+}
+
 @media (min-width: 540px) {
   .shell {
     padding-left: 1.25rem;
@@ -1694,6 +1764,6 @@ button:disabled {
   }
 
   .tabbarDock {
-    width: min(620px, calc(100vw - 0.68rem));
+    width: min(608px, calc(100vw - 1rem));
   }
 }
