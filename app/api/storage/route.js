@@ -1,9 +1,11 @@
 import { getSnapshot, saveSnapshot } from "../../../lib/db/sqlite-storage.js";
+import { ensurePushSweepScheduler } from "../../../lib/notifications/push-scheduler.js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  ensurePushSweepScheduler();
   try {
     const payload = await getSnapshot();
     return Response.json(payload, { status: 200 });
@@ -16,6 +18,7 @@ export async function GET() {
 }
 
 export async function PUT(request) {
+  ensurePushSweepScheduler();
   try {
     const body = await request.json();
     const nextSnapshot = await saveSnapshot(body?.snapshot);

@@ -3,6 +3,7 @@ import {
   removePushSubscription,
   upsertPushSubscription
 } from "../../../../lib/db/sqlite-storage.js";
+import { ensurePushSweepScheduler } from "../../../../lib/notifications/push-scheduler.js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +23,7 @@ function resolveEndpointFromBody(body) {
 }
 
 export async function GET() {
+  ensurePushSweepScheduler();
   try {
     const subscriptions = await listPushSubscriptions();
     return Response.json({ count: subscriptions.length }, { status: 200 });
@@ -34,6 +36,7 @@ export async function GET() {
 }
 
 export async function POST(request) {
+  ensurePushSweepScheduler();
   try {
     const body = await request.json();
     const subscription = body?.subscription;
@@ -54,6 +57,7 @@ export async function POST(request) {
 }
 
 export async function DELETE(request) {
+  ensurePushSweepScheduler();
   try {
     const body = await request.json().catch(() => ({}));
     const endpoint = resolveEndpointFromBody(body);

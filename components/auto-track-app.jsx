@@ -52,7 +52,8 @@ const DEFAULT_PWA_SETTINGS = {
   resumeLastTab: true,
   offlineReady: true,
   pushAlerts: false,
-  appIcon: DEFAULT_PWA_ICON
+  appIcon: DEFAULT_PWA_ICON,
+  honda2017TestMode: false
 };
 
 const EVENT_LABELS = {
@@ -479,7 +480,11 @@ function normalizePwaSettings(raw) {
     offlineReady:
       typeof raw.offlineReady === "boolean" ? raw.offlineReady : DEFAULT_PWA_SETTINGS.offlineReady,
     pushAlerts: typeof raw.pushAlerts === "boolean" ? raw.pushAlerts : DEFAULT_PWA_SETTINGS.pushAlerts,
-    appIcon: iconSet.appleTouch
+    appIcon: iconSet.appleTouch,
+    honda2017TestMode:
+      typeof raw.honda2017TestMode === "boolean"
+        ? raw.honda2017TestMode
+        : DEFAULT_PWA_SETTINGS.honda2017TestMode
   };
 }
 
@@ -832,6 +837,10 @@ export default function AutoTrackApp() {
   const resolvedTheme = themePreference === "system" ? (prefersDark ? "dark" : "light") : themePreference;
   const currentIconSet = useMemo(() => resolveAppIconSet(pwaSettings.appIcon), [pwaSettings.appIcon]);
   const selectedAppIconSetId = currentIconSet.id;
+  const maintenanceStatsOptions = useMemo(
+    () => ({ honda2017TestMode: pwaSettings.honda2017TestMode }),
+    [pwaSettings.honda2017TestMode]
+  );
 
   const notify = (message) => setFlash(message);
   const updateState = (action) => setState((prev) => reducer(prev, action));
@@ -1450,6 +1459,17 @@ export default function AutoTrackApp() {
     notify("App icon updated. Re-add the Home Screen icon if you want the installed icon to refresh.");
   };
 
+  const fetchServerPushPublicKey = useCallback(async () => {
+    try {
+      const response = await fetch("/api/push/config", { cache: "no-store" });
+      if (!response.ok) return "";
+      const payload = await response.json();
+      return typeof payload?.publicKey === "string" ? payload.publicKey.trim() : "";
+    } catch {
+      return "";
+    }
+  }, []);
+
   const syncPushSubscriptionToServer = useCallback(
     async (subscription, options = {}) => {
       const { silent = true } = options;
@@ -1564,11 +1584,19 @@ export default function AutoTrackApp() {
 
     if ("PushManager" in window) {
       let subscription = await registration.pushManager.getSubscription();
-      if (!subscription && vapidPublicKey?.trim()) {
+      let activeVapidPublicKey = vapidPublicKey?.trim() || "";
+      if (!activeVapidPublicKey) {
+        activeVapidPublicKey = await fetchServerPushPublicKey();
+        if (activeVapidPublicKey) {
+          setVapidPublicKey(activeVapidPublicKey);
+        }
+      }
+
+      if (!subscription && activeVapidPublicKey) {
         try {
           subscription = await registration.pushManager.subscribe({
             userVisibleOnly: true,
-            applicationServerKey: urlBase64ToUint8Array(vapidPublicKey.trim())
+            applicationServerKey: urlBase64ToUint8Array(activeVapidPublicKey)
           });
         } catch (error) {
           notify(error?.message || "Unable to create push subscription with this VAPID key.");
@@ -1582,7 +1610,7 @@ export default function AutoTrackApp() {
         notify("iPhone notification connection ready. Background push is connected.");
         triggerServerPushSweep();
       } else {
-        notify("Connected for local tests. Add a VAPID key to create a remote push subscription.");
+        notify("Connected, but remote push is not configured. Set VAPID keys on the server.");
       }
       return;
     }
@@ -1609,7 +1637,7 @@ export default function AutoTrackApp() {
 
   const buildVehicleServiceNotification = useCallback(
     (vehicle, maintenanceType, stage = "due_soon") => {
-      const stats = getMaintenanceStats(vehicle);
+      const stats = getMaintenanceStats(vehicle, Date.now(), maintenanceStatsOptions);
       const isOil = maintenanceType === "oil_change";
       const remainingMs = isOil ? stats.oilRemainingMs : stats.tireRemainingMs;
       const dueDateISO = isOil ? stats.oilDueDateISO : stats.tireDueDateISO;
@@ -1631,7 +1659,7 @@ export default function AutoTrackApp() {
         url: "/"
       };
     },
-    [currentIconSet.notification]
+    [currentIconSet.notification, maintenanceStatsOptions]
   );
 
   const buildDevNotificationPayload = useCallback(
@@ -1767,6 +1795,24 @@ export default function AutoTrackApp() {
 
   useEffect(() => {
     if (!hydrated) return;
+    if (vapidPublicKey?.trim()) return;
+    let cancelled = false;
+
+    const loadRuntimePushConfig = async () => {
+      const runtimeKey = await fetchServerPushPublicKey();
+      if (!cancelled && runtimeKey) {
+        setVapidPublicKey(runtimeKey);
+      }
+    };
+
+    loadRuntimePushConfig();
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated, vapidPublicKey, fetchServerPushPublicKey]);
+
+  useEffect(() => {
+    if (!hydrated) return;
     if (!pwaSettings.pushAlerts || !pwaSettings.offlineReady) return;
     if (notificationPermission !== "granted") return;
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
@@ -1780,10 +1826,17 @@ export default function AutoTrackApp() {
         if (!registration) return;
 
         let subscription = await registration.pushManager.getSubscription();
-        if (!subscription && vapidPublicKey?.trim()) {
+        let activeVapidPublicKey = vapidPublicKey?.trim() || "";
+        if (!activeVapidPublicKey) {
+          activeVapidPublicKey = await fetchServerPushPublicKey();
+          if (activeVapidPublicKey && !disposed) {
+            setVapidPublicKey(activeVapidPublicKey);
+          }
+        }
+        if (!subscription && activeVapidPublicKey) {
           subscription = await registration.pushManager.subscribe({
             userVisibleOnly: true,
-            applicationServerKey: urlBase64ToUint8Array(vapidPublicKey.trim())
+            applicationServerKey: urlBase64ToUint8Array(activeVapidPublicKey)
           });
         }
         if (!subscription || disposed) return;
@@ -1814,6 +1867,7 @@ export default function AutoTrackApp() {
     pwaSettings.offlineReady,
     notificationPermission,
     vapidPublicKey,
+    fetchServerPushPublicKey,
     syncPushSubscriptionToServer,
     triggerServerPushSweep
   ]);
@@ -1836,7 +1890,7 @@ export default function AutoTrackApp() {
       try {
         for (const vehicle of state.vehicles) {
           if (disposed) return;
-          const stats = getMaintenanceStats(vehicle);
+          const stats = getMaintenanceStats(vehicle, Date.now(), maintenanceStatsOptions);
           const checks = [
             {
               maintenanceType: "oil_change",
@@ -1915,6 +1969,7 @@ export default function AutoTrackApp() {
     pwaSettings.offlineReady,
     notificationPermission,
     state.vehicles,
+    maintenanceStatsOptions,
     buildVehicleServiceNotification,
     sendServiceWorkerNotification,
     persistAutoNotificationState
@@ -1933,7 +1988,9 @@ export default function AutoTrackApp() {
     ? state.history.filter((entry) => entry.vehicleId === selectedVehicle.id)
     : [];
 
-  const stats = selectedVehicle ? getMaintenanceStats(selectedVehicle, maintenanceNowMs) : null;
+  const stats = selectedVehicle
+    ? getMaintenanceStats(selectedVehicle, maintenanceNowMs, maintenanceStatsOptions)
+    : null;
   const getVehicleImageStyle = (vehicle) =>
     vehicle?.imageScale || vehicle?.imageShiftX
       ? {
@@ -2509,6 +2566,28 @@ export default function AutoTrackApp() {
               </div>
 
               <div className="settingsBody">
+                <section className="devBlock">
+                  <h3>2017 Honda Test Timer</h3>
+                  <p className="tiny">
+                    Turn on 1-minute oil/tire due timing for the 2017 Honda Accord only. Turn off to use normal service intervals.
+                  </p>
+                  <div className="settingRow">
+                    <div>
+                      <strong>1-minute mode</strong>
+                      <p className="tiny">Affects dashboard progress and due notifications for 2017 Honda only.</p>
+                    </div>
+                    <button
+                      type="button"
+                      className={`switchButton ${pwaSettings.honda2017TestMode ? "active" : ""}`}
+                      onClick={() =>
+                        updatePwaSettings({ honda2017TestMode: !pwaSettings.honda2017TestMode })
+                      }
+                    >
+                      {pwaSettings.honda2017TestMode ? "On" : "Off"}
+                    </button>
+                  </div>
+                </section>
+
                 <section className="devBlock">
                   <h3>Notification Templates</h3>
                   <p className="tiny">

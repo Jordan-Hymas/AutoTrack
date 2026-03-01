@@ -1,4 +1,5 @@
 import { runPushNotificationSweep } from "../../../../lib/notifications/push-sweep.js";
+import { ensurePushSweepScheduler } from "../../../../lib/notifications/push-scheduler.js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +26,7 @@ function parseDryRun(request) {
 }
 
 async function handleSweep(request) {
+  ensurePushSweepScheduler();
   if (!isAuthorized(request)) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
