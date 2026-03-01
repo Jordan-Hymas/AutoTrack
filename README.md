@@ -20,13 +20,24 @@ This is currently used as an internal tool for my family's vehicles and is activ
 
 ## Screenshots
 
-| Dashboard | Dark Mode |
-| --- | --- |
-| ![Dashboard](GithubPhotos/dashboard.PNG) | ![Dark Mode Ram](GithubPhotos/darkModeRam.PNG) |
-
-| Vehicles | Vehicle Info |
-| --- | --- |
-| ![Vehicles](GithubPhotos/vehicles.PNG) | ![Vehicle Info](GithubPhotos/vehicleInfo.PNG) |
+<table align="center">
+  <tr>
+    <td align="center"><strong>Dashboard</strong></td>
+    <td align="center"><strong>Dark Mode</strong></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="GithubPhotos/dashboard.PNG" alt="Dashboard" width="260" height="560"></td>
+    <td align="center"><img src="GithubPhotos/darkModeRam.PNG" alt="Dark Mode Ram" width="260" height="560"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Vehicles</strong></td>
+    <td align="center"><strong>Vehicle Info</strong></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="GithubPhotos/vehicles.PNG" alt="Vehicles" width="260" height="560"></td>
+    <td align="center"><img src="GithubPhotos/vehicleInfo.PNG" alt="Vehicle Info" width="260" height="560"></td>
+  </tr>
+</table>
 
 ## Main Features
 
