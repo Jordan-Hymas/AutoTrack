@@ -1,14 +1,5 @@
 # AutoTrack
 
-<p align="center">
-  <video controls muted playsinline width="360">
-    <source src="GithubPhotos/fullPWA.mp4?raw=1" type="video/mp4">
-  </video>
-</p>
-<p align="center">
-  <a href="GithubPhotos/fullPWA.mp4?raw=1">If the video player does not render here, tap to open fullPWA.mp4.</a>
-</p>
-
 AutoTrack is a mobile-first web application built in a PWA style for tracking family vehicles.
 
 The core goal of the app is simple:
@@ -24,18 +15,22 @@ This is currently used as an internal tool for my family's vehicles and is activ
   <tr>
     <td align="center"><strong>Dashboard</strong></td>
     <td align="center"><strong>Dark Mode</strong></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="GithubPhotos/dashboard.PNG" alt="Dashboard" width="260" height="560"></td>
-    <td align="center"><img src="GithubPhotos/darkModeRam.PNG" alt="Dark Mode Ram" width="260" height="560"></td>
-  </tr>
-  <tr>
-    <td align="center"><strong>Vehicles</strong></td>
     <td align="center"><strong>Vehicle Info</strong></td>
   </tr>
   <tr>
-    <td align="center"><img src="GithubPhotos/vehicles.PNG" alt="Vehicles" width="260" height="560"></td>
-    <td align="center"><img src="GithubPhotos/vehicleInfo.PNG" alt="Vehicle Info" width="260" height="560"></td>
+    <td align="center"><img src="GithubPhotos/dashboard.PNG" alt="Dashboard" width="220" height="475"></td>
+    <td align="center"><img src="GithubPhotos/darkModeRam.PNG" alt="Dark Mode Ram" width="220" height="475"></td>
+    <td align="center"><img src="GithubPhotos/vehicleInfo.PNG" alt="Vehicle Info" width="220" height="475"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Calendar</strong></td>
+    <td align="center"><strong>Vehicles</strong></td>
+    <td align="center"><strong>Settings</strong></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="GithubPhotos/calendar.PNG" alt="Calendar" width="220" height="475"></td>
+    <td align="center"><img src="GithubPhotos/vehicles.PNG" alt="Vehicles" width="220" height="475"></td>
+    <td align="center"><img src="GithubPhotos/settings.png" alt="Settings" width="220" height="475"></td>
   </tr>
 </table>
 
