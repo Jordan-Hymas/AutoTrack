@@ -1,52 +1,106 @@
 # AutoTrack
 
-Mobile-first vehicle mileage and maintenance tracker built with Next.js, React, and Radix UI.
+<p align="center">
+  <video src="GithubPhotos/fullPWA.MP4" controls muted playsinline width="360"></video>
+</p>
 
-## Features
+AutoTrack is a mobile-first web application built in a PWA style for tracking family vehicles.
 
-- Progressive Web App setup (manifest + service worker scaffold)
-- Multiple family vehicles with maintenance tracking
-- Odometer updates and maintenance history
-- Light/dark theme support with system toggle
-- Mobile-style bottom tab navigation
+The core goal of the app is simple:
+- track when each vehicle is due for tire rotation
+- track when each vehicle is due for an oil change
+- keep key vehicle details and service history in one place
+
+This is currently used as an internal family tool and is in active production-style deployment work for broader users.
+
+## Screenshots
+
+| Dashboard | Dark Mode |
+| --- | --- |
+| ![Dashboard](GithubPhotos/dashboard.PNG) | ![Dark Mode Ram](GithubPhotos/darkModeRam.PNG) |
+
+| Vehicles | Vehicle Info |
+| --- | --- |
+| ![Vehicles](GithubPhotos/vehicles.PNG) | ![Vehicle Info](GithubPhotos/vehicleInfo.PNG) |
+
+## Main Features
+
+- Multi-vehicle dashboard with per-vehicle maintenance countdowns
+- Odometer tracking and service history logs
+- Vehicle information pages for each family vehicle
+- Calendar/reminders view for service planning
+- Light and dark themes
+- Mobile tab-based navigation designed for iPhone usage
+- SQLite-backed storage API
+- Web Push notifications delivered from server-side sweeps
+
+## Tech Stack
+
+- Next.js 15
+- React 19
+- Radix UI Tabs
+- SQLite (`better-sqlite3`)
+- Service Worker + Web Push
 
 ## Local Development
 
+1. Install dependencies:
+
 ```bash
 npm install
+```
+
+2. Start local dev server:
+
+```bash
 npm run dev
 ```
 
-## Build
+3. Open:
+
+```text
+http://localhost:3000
+```
+
+## Production Build
 
 ```bash
 npm run build
 npm run start
 ```
 
-## Background Push Setup (Required For Closed-Phone Alerts)
+## How Notifications Work (VPS -> Device)
 
-AutoTrack now supports backend Web Push delivery. This is what allows reminders to fire while the PWA is closed and the phone is locked.
+AutoTrack sends maintenance notifications using standard Web Push.
 
-1. Generate VAPID keys:
+High level flow:
+1. User installs the app to Home Screen (PWA mode) and enables notifications.
+2. The app creates a push subscription and stores it on the server.
+3. Your VPS runs a scheduled sweep (for example every minute) against `/api/push/sweep`.
+4. Sweep logic checks due/overdue maintenance states and sends push notifications to subscribed devices.
+5. Notifications are delivered by the OS even when the app is closed and the phone is locked.
+
+## Required Environment Variables
+
+```bash
+NEXT_PUBLIC_VAPID_PUBLIC_KEY=...
+VAPID_PUBLIC_KEY=...
+VAPID_PRIVATE_KEY=...
+VAPID_SUBJECT=mailto:you@yourdomain.com
+AUTOTRACK_CRON_SECRET=choose-a-long-random-secret
+```
+
+Generate keys once with:
 
 ```bash
 npx web-push generate-vapid-keys
 ```
 
-2. Configure env vars (example):
+## Manual Sweep Test
 
 ```bash
-NEXT_PUBLIC_VAPID_PUBLIC_KEY=...
-VAPID_PRIVATE_KEY=...
-VAPID_SUBJECT=mailto:you@example.com
-AUTOTRACK_CRON_SECRET=choose-a-random-secret
+curl -X POST "https://autotrack.jordanhymas.com/api/push/sweep" \
+  -H "x-autotrack-cron-secret: <AUTOTRACK_CRON_SECRET>"
 ```
 
-3. Ensure a scheduler hits the sweep endpoint (for example once per minute):
-
-```bash
-curl -X POST http://127.0.0.1:3000/api/push/sweep -H "x-autotrack-cron-secret: <AUTOTRACK_CRON_SECRET>"
-```
-
-If the scheduler is not running, closed-app notifications cannot be guaranteed.
+If scheduled sweeps stop running, push alerts will not fire on time.

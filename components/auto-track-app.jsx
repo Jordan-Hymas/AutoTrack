@@ -26,6 +26,7 @@ const VAPID_KEY_STORAGE_KEY = "autotrack_vapid_public_key_v1";
 const AUTO_NOTIFICATION_STATE_STORAGE_KEY = "autotrack_auto_notification_state_v1";
 const HIDDEN_NOTIFICATION_TITLE = "\u2060";
 const TAB_OPTIONS = ["vehicles", "history", "dashboard", "reminders", "settings"];
+const DEV_SETTINGS_PASSCODE = "9384";
 const APP_ICON_SETS = [
   {
     id: "classic",
@@ -748,6 +749,8 @@ export default function AutoTrackApp() {
   const [themePreference, setThemePreference] = useState("light");
   const [pwaSettings, setPwaSettings] = useState(DEFAULT_PWA_SETTINGS);
   const [settingsPage, setSettingsPage] = useState("main");
+  const [devPasscodeInput, setDevPasscodeInput] = useState("");
+  const [devPasscodeError, setDevPasscodeError] = useState("");
   const [vapidPublicKey, setVapidPublicKey] = useState(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "");
   const [prefersDark, setPrefersDark] = useState(false);
   const [notificationPermission, setNotificationPermission] = useState("default");
@@ -1626,13 +1629,47 @@ export default function AutoTrackApp() {
   };
 
   const handleOpenDeveloperSettings = () => {
-    setSettingsPage("developer");
+    setDevPasscodeInput("");
+    setDevPasscodeError("");
+    setSettingsPage("developer-auth");
     scrollAppToTop();
   };
 
   const handleBackToSettingsMain = () => {
+    setDevPasscodeInput("");
+    setDevPasscodeError("");
     setSettingsPage("main");
     scrollAppToTop();
+  };
+
+  const handleUnlockDeveloperSettings = () => {
+    if (devPasscodeInput.trim() !== DEV_SETTINGS_PASSCODE) {
+      setDevPasscodeError("Incorrect passcode.");
+      return;
+    }
+    setDevPasscodeError("");
+    setDevPasscodeInput("");
+    setSettingsPage("developer");
+    scrollAppToTop();
+  };
+
+  const handleResetVehicleTrackingData = (vehicleId) => {
+    const vehicle = state.vehicles.find((item) => item.id === vehicleId);
+    if (!vehicle) return;
+    const confirmed = window.confirm(
+      `Reset ${vehicle.name} odometer/history and restart service trackers from now?`
+    );
+    if (!confirmed) return;
+
+    updateState({ type: "reset-vehicle-data", vehicleId });
+    const keyPrefix = `${vehicleId}:`;
+    Object.keys(autoNotificationStateRef.current).forEach((key) => {
+      if (key.startsWith(keyPrefix)) {
+        delete autoNotificationStateRef.current[key];
+      }
+    });
+    persistAutoNotificationState();
+    notify(`${vehicle.name} was reset.`);
   };
 
   const buildVehicleServiceNotification = useCallback(
@@ -2129,16 +2166,7 @@ export default function AutoTrackApp() {
                     aria-label="Open AutoTrack vehicle list"
                     onClick={() => setDashboardMenuOpen((prev) => !prev)}
                   >
-                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                      <path
-                        d="M5.2 13.4 6.6 9a2.4 2.4 0 0 1 2.3-1.7h6.2A2.4 2.4 0 0 1 17.4 9l1.4 4.4v3.3h-1.7a1.8 1.8 0 0 1-3.6 0h-3a1.8 1.8 0 0 1-3.6 0H5.2Z"
-                        stroke="currentColor"
-                        strokeWidth="1.7"
-                        strokeLinejoin="round"
-                      />
-                      <circle cx="8.7" cy="16.7" r="0.9" fill="currentColor" />
-                      <circle cx="15.3" cy="16.7" r="0.9" fill="currentColor" />
-                    </svg>
+                    <NavIcon type="vehicles" />
                   </button>
 
                   {dashboardMenuOpen && (
@@ -2533,13 +2561,73 @@ export default function AutoTrackApp() {
               <section className="card settingsCard">
                 <div className="settingsHead">
                   <h3>Developer</h3>
-                  <p className="tiny">Open developer tools for notification testing.</p>
+                  <p className="tiny">Open developer tools for notification testing (passcode required).</p>
                 </div>
                 <button type="button" className="optionButton active" onClick={handleOpenDeveloperSettings}>
                   Open Developer Settings
                 </button>
               </section>
             </>
+          ) : settingsPage === "developer-auth" ? (
+            <section className="card settingsCard devSettingsPage">
+              <div className="devSettingsTop">
+                <button
+                  type="button"
+                  className="iconBackButton"
+                  onClick={handleBackToSettingsMain}
+                  aria-label="Back to settings"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="m14.5 5.8-6.2 6.2 6.2 6.2"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+                <div className="settingsHead">
+                  <h2>Developer Access</h2>
+                  <p className="tiny">Enter passcode to open developer settings.</p>
+                </div>
+              </div>
+
+              <div className="settingsBody">
+                <section className="devBlock">
+                  <label className="modalInputWrap">
+                    Passcode
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      maxLength={8}
+                      value={devPasscodeInput}
+                      onChange={(event) => {
+                        setDevPasscodeInput(event.target.value);
+                        if (devPasscodeError) setDevPasscodeError("");
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          handleUnlockDeveloperSettings();
+                        }
+                      }}
+                    />
+                  </label>
+                  {devPasscodeError ? <p className="tiny">{devPasscodeError}</p> : null}
+                  <div className="buttonRow settingsActions">
+                    <button
+                      type="button"
+                      className="optionButton active"
+                      onClick={handleUnlockDeveloperSettings}
+                    >
+                      Unlock Developer Settings
+                    </button>
+                  </div>
+                </section>
+              </div>
+            </section>
           ) : (
             <section className="card settingsCard devSettingsPage">
               <div className="devSettingsTop">
@@ -2585,6 +2673,29 @@ export default function AutoTrackApp() {
                     >
                       {pwaSettings.honda2017TestMode ? "On" : "Off"}
                     </button>
+                  </div>
+                </section>
+
+                <section className="devBlock">
+                  <h3>Reset Vehicle Data</h3>
+                  <p className="tiny">
+                    Reset odometer, clear history for that vehicle, and restart oil/tire date tracking from now.
+                  </p>
+                  <div className="devVehicleTestList">
+                    {state.vehicles.map((vehicle) => (
+                      <div key={vehicle.id} className="devVehicleTestRow devVehicleResetRow">
+                        <p>{vehicle.name}</p>
+                        <div className="buttonRow settingsActions devVehicleResetButtons">
+                          <button
+                            type="button"
+                            className="optionButton"
+                            onClick={() => handleResetVehicleTrackingData(vehicle.id)}
+                          >
+                            Reset Odometer + History
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </section>
 

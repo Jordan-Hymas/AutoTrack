@@ -170,6 +170,11 @@ p {
   height: 1.28rem;
 }
 
+.dashboardVehicleButton .tabIcon {
+  width: 1.28rem;
+  height: 1.28rem;
+}
+
 .dashboardVehicleButton.open {
   border-color: var(--text);
 }
@@ -1610,6 +1615,19 @@ button:disabled {
 .devVehicleButtons {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-top: 0.12rem;
+}
+
+.devVehicleResetRow p {
+  text-align: center;
+}
+
+.devVehicleResetButtons {
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: 0.12rem;
+}
+
+.devVehicleResetButtons .optionButton {
+  width: 100%;
 }
 
 .iconPresetGrid {
