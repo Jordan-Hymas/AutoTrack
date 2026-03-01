@@ -1,7 +1,12 @@
 # AutoTrack
 
 <p align="center">
-  <video src="GithubPhotos/fullPWA.MP4" controls muted playsinline width="360"></video>
+  <video controls muted playsinline width="360">
+    <source src="GithubPhotos/fullPWA.mp4?raw=1" type="video/mp4">
+  </video>
+</p>
+<p align="center">
+  <a href="GithubPhotos/fullPWA.mp4?raw=1">If the video player does not render here, tap to open fullPWA.mp4.</a>
 </p>
 
 AutoTrack is a mobile-first web application built in a PWA style for tracking family vehicles.
@@ -11,7 +16,7 @@ The core goal of the app is simple:
 - track when each vehicle is due for an oil change
 - keep key vehicle details and service history in one place
 
-This is currently used as an internal family tool and is in active production-style deployment work for broader users.
+This is currently used as an internal tool for my family's vehicles and is actively being prepared for broader production use.
 
 ## Screenshots
 
