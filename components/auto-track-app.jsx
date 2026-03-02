@@ -2661,7 +2661,7 @@ export default function AutoTrackApp() {
                         </button>
                       ))}
                     </div>
-                    <p className="tiny settingsHint">
+                    <p className="tiny settingsHint appIconSettingsHint">
                       If AutoTrack is already installed, remove and re-add it to Home Screen to apply icon changes.
                     </p>
                   </div>
