@@ -3,3 +3,9 @@ dist
 .DS_Store
 .next
 out
+
+.data/
+.env*
+!.env.example
+*.sqlite
+*.bak.*
