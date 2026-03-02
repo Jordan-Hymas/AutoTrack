@@ -72,6 +72,7 @@ html {
 body {
   margin: 0;
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   overscroll-behavior: none;
   background: var(--bg);
@@ -93,7 +94,9 @@ p {
   max-width: 620px;
   margin: 0 auto;
   min-height: 100vh;
+  min-height: 100dvh;
   height: 100vh;
+  height: 100dvh;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: none;
@@ -425,12 +428,14 @@ label {
 
 input,
 select,
+textarea,
 button {
   font: inherit;
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
   border-radius: 0.72rem;
   border: 1px solid var(--line-strong);
@@ -438,6 +443,7 @@ select {
   min-height: 42px;
   background: var(--surface);
   color: var(--text);
+  font-size: 16px;
 }
 
 button {
@@ -1411,12 +1417,28 @@ button:disabled {
   gap: 0.72rem;
 }
 
+.settingsField {
+  display: grid;
+  gap: 0.24rem;
+}
+
 .settingsLabel {
   margin: 0;
   font-size: 0.78rem;
   color: var(--muted);
   letter-spacing: 0.02em;
   text-transform: uppercase;
+}
+
+.settingsIntervalGrid {
+  display: grid;
+  gap: 0.56rem;
+  padding-top: 0.62rem;
+  border-top: 1px solid var(--line);
+}
+
+.settingsIntervalActions {
+  margin-top: 0.08rem;
 }
 
 .settingRow {

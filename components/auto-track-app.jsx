@@ -292,6 +292,12 @@ function formatMileage(miles) {
 }
 
 function resolveVehicleProfileValue(vehicle, profile, field) {
+  if (field === "Oil Change Interval (Miles)" && vehicle) {
+    return formatMileage(vehicle.oilInterval);
+  }
+  if (field === "Tire Rotation Interval (Miles)" && vehicle) {
+    return formatMileage(vehicle.tireInterval);
+  }
   if (USER_TRACKED_PROFILE_FIELDS.has(field) && vehicle) {
     const hasOdometerReading = Number(vehicle.odometer) > 0;
     return hasOdometerReading ? formatMileage(vehicle.odometer) : "User Tracked";
@@ -759,6 +765,14 @@ export default function AutoTrackApp() {
   const [installGuideOpen, setInstallGuideOpen] = useState(false);
   const [odometerEditorOpen, setOdometerEditorOpen] = useState(false);
   const [odometerDraft, setOdometerDraft] = useState("");
+  const [intervalSettingsVehicleId, setIntervalSettingsVehicleId] = useState("");
+  const [intervalDraft, setIntervalDraft] = useState({
+    oilInterval: "",
+    tireInterval: "",
+    oilIntervalMonths: "",
+    tireIntervalMonths: ""
+  });
+  const [intervalConfirm, setIntervalConfirm] = useState(null);
   const [maintenanceConfirm, setMaintenanceConfirm] = useState(null);
   const [calendarComposer, setCalendarComposer] = useState(null);
   const [calendarEventDraft, setCalendarEventDraft] = useState(createReminderDraft());
@@ -832,7 +846,29 @@ export default function AutoTrackApp() {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   };
 
+  const closeOdometerEditor = () => {
+    const activeElement = document.activeElement;
+    if (activeElement && typeof activeElement.blur === "function") {
+      activeElement.blur();
+    }
+    setOdometerEditorOpen(false);
+
+    // iOS can leave nested scrollers in a stuck state after keyboard dismissal.
+    window.setTimeout(() => {
+      if (!shellRef.current) return;
+      const currentTop = shellRef.current.scrollTop;
+      shellRef.current.style.overflowY = "hidden";
+      void shellRef.current.offsetHeight;
+      shellRef.current.style.overflowY = "auto";
+      shellRef.current.scrollTop = currentTop;
+    }, 0);
+  };
+
   const selectedVehicle = useMemo(() => getSelectedVehicle(state), [state]);
+  const intervalSettingsVehicle = useMemo(
+    () => state.vehicles.find((item) => item.id === intervalSettingsVehicleId) || null,
+    [state.vehicles, intervalSettingsVehicleId]
+  );
   const vehicleDetail = useMemo(
     () => state.vehicles.find((item) => item.id === vehicleDetailId) || null,
     [state.vehicles, vehicleDetailId]
@@ -1003,6 +1039,46 @@ export default function AutoTrackApp() {
       setSettingsPage("main");
     }
   }, [activeTab, settingsPage]);
+
+  useEffect(() => {
+    if (state.vehicles.length === 0) {
+      if (intervalSettingsVehicleId) {
+        setIntervalSettingsVehicleId("");
+      }
+      return;
+    }
+    const preferredVehicleId =
+      state.vehicles.find((item) => item.id === intervalSettingsVehicleId)?.id ||
+      state.selectedVehicleId ||
+      state.vehicles[0].id;
+    if (preferredVehicleId !== intervalSettingsVehicleId) {
+      setIntervalSettingsVehicleId(preferredVehicleId);
+    }
+  }, [intervalSettingsVehicleId, state.selectedVehicleId, state.vehicles]);
+
+  useEffect(() => {
+    if (!intervalSettingsVehicle) {
+      setIntervalDraft({
+        oilInterval: "",
+        tireInterval: "",
+        oilIntervalMonths: "",
+        tireIntervalMonths: ""
+      });
+      return;
+    }
+    setIntervalDraft({
+      oilInterval: String(intervalSettingsVehicle.oilInterval),
+      tireInterval: String(intervalSettingsVehicle.tireInterval),
+      oilIntervalMonths: String(intervalSettingsVehicle.oilIntervalMonths),
+      tireIntervalMonths: String(intervalSettingsVehicle.tireIntervalMonths)
+    });
+  }, [
+    intervalSettingsVehicle?.id,
+    intervalSettingsVehicle?.oilInterval,
+    intervalSettingsVehicle?.tireInterval,
+    intervalSettingsVehicle?.oilIntervalMonths,
+    intervalSettingsVehicle?.tireIntervalMonths
+  ]);
 
 
   useEffect(() => {
@@ -1181,13 +1257,19 @@ export default function AutoTrackApp() {
 
   const handleSaveOdometer = () => {
     if (!selectedVehicle) return;
+    const trimmedOdometerDraft = String(odometerDraft).trim();
+    const parsedOdometer = Number(trimmedOdometerDraft);
+    if (!trimmedOdometerDraft || !Number.isFinite(parsedOdometer) || parsedOdometer < 0) {
+      window.alert("Enter a valid odometer reading (0 or higher).");
+      return;
+    }
     try {
       updateState({
         type: "update-odometer",
         vehicleId: selectedVehicle.id,
-        odometer: odometerDraft
+        odometer: parsedOdometer
       });
-      setOdometerEditorOpen(false);
+      closeOdometerEditor();
     } catch (error) {
       window.alert(error.message || "Unable to update odometer.");
     }
@@ -1197,6 +1279,76 @@ export default function AutoTrackApp() {
     if (!selectedVehicle) return;
     setOdometerDraft(String(selectedVehicle.odometer));
     setOdometerEditorOpen(true);
+  };
+
+  const handleSaveServiceIntervals = () => {
+    if (!intervalSettingsVehicle) return;
+    const trimmedOilInterval = String(intervalDraft.oilInterval).trim();
+    const trimmedTireInterval = String(intervalDraft.tireInterval).trim();
+    const trimmedOilIntervalMonths = String(intervalDraft.oilIntervalMonths).trim();
+    const trimmedTireIntervalMonths = String(intervalDraft.tireIntervalMonths).trim();
+    const parsedOilInterval = Number(trimmedOilInterval);
+    const parsedTireInterval = Number(trimmedTireInterval);
+    const parsedOilIntervalMonths = Number(trimmedOilIntervalMonths);
+    const parsedTireIntervalMonths = Number(trimmedTireIntervalMonths);
+    if (
+      !trimmedOilInterval ||
+      !trimmedTireInterval ||
+      !trimmedOilIntervalMonths ||
+      !trimmedTireIntervalMonths ||
+      !Number.isFinite(parsedOilInterval) ||
+      !Number.isFinite(parsedTireInterval) ||
+      !Number.isFinite(parsedOilIntervalMonths) ||
+      !Number.isFinite(parsedTireIntervalMonths) ||
+      parsedOilInterval <= 0 ||
+      parsedTireInterval <= 0 ||
+      parsedOilIntervalMonths <= 0 ||
+      parsedTireIntervalMonths <= 0
+    ) {
+      window.alert("Enter valid interval values greater than 0.");
+      return;
+    }
+
+    const oilInterval = Math.max(1, Math.round(parsedOilInterval));
+    const tireInterval = Math.max(1, Math.round(parsedTireInterval));
+    const oilIntervalMonths = Math.max(0.25, Math.round(parsedOilIntervalMonths * 100) / 100);
+    const tireIntervalMonths = Math.max(0.25, Math.round(parsedTireIntervalMonths * 100) / 100);
+    if (
+      oilInterval === intervalSettingsVehicle.oilInterval &&
+      tireInterval === intervalSettingsVehicle.tireInterval &&
+      oilIntervalMonths === intervalSettingsVehicle.oilIntervalMonths &&
+      tireIntervalMonths === intervalSettingsVehicle.tireIntervalMonths
+    ) {
+      notify("No interval changes to save.");
+      return;
+    }
+
+    setIntervalConfirm({
+      vehicleId: intervalSettingsVehicle.id,
+      vehicleName: intervalSettingsVehicle.name,
+      oilInterval,
+      tireInterval,
+      oilIntervalMonths,
+      tireIntervalMonths
+    });
+  };
+
+  const handleConfirmServiceIntervals = () => {
+    if (!intervalConfirm) return;
+    try {
+      updateState({
+        type: "update-intervals",
+        vehicleId: intervalConfirm.vehicleId,
+        oilInterval: intervalConfirm.oilInterval,
+        tireInterval: intervalConfirm.tireInterval,
+        oilIntervalMonths: intervalConfirm.oilIntervalMonths,
+        tireIntervalMonths: intervalConfirm.tireIntervalMonths
+      });
+      notify(`${intervalConfirm.vehicleName} service intervals updated.`);
+      setIntervalConfirm(null);
+    } catch (error) {
+      window.alert(error.message || "Unable to update service intervals.");
+    }
   };
 
   const handleAskMaintenanceReset = (maintenanceType) => {
@@ -2518,6 +2670,99 @@ export default function AutoTrackApp() {
 
               <section className="card settingsCard">
                 <div className="settingsHead">
+                  <h3>Service Intervals</h3>
+                  <p className="tiny">
+                    Update mileage and month intervals per vehicle for oil changes and tire rotations.
+                  </p>
+                </div>
+                <div className="settingsBody">
+                  <label className="settingsField">
+                    <span className="settingsLabel">Vehicle</span>
+                    <select
+                      value={intervalSettingsVehicleId}
+                      onChange={(event) => setIntervalSettingsVehicleId(event.target.value)}
+                    >
+                      {state.vehicles.map((vehicle) => (
+                        <option key={vehicle.id} value={vehicle.id}>
+                          {vehicle.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <div className="settingsIntervalGrid">
+                    <label className="settingsField">
+                      <span className="settingsLabel">Tire Rotation (Miles)</span>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={intervalDraft.tireInterval}
+                        onChange={(event) =>
+                          setIntervalDraft((prev) => ({ ...prev, tireInterval: event.target.value }))
+                        }
+                      />
+                    </label>
+
+                    <label className="settingsField">
+                      <span className="settingsLabel">Tire Rotation (Months)</span>
+                      <input
+                        type="number"
+                        min="0.25"
+                        step="0.25"
+                        value={intervalDraft.tireIntervalMonths}
+                        onChange={(event) =>
+                          setIntervalDraft((prev) => ({
+                            ...prev,
+                            tireIntervalMonths: event.target.value
+                          }))
+                        }
+                      />
+                    </label>
+
+                    <label className="settingsField">
+                      <span className="settingsLabel">Oil Change (Miles)</span>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={intervalDraft.oilInterval}
+                        onChange={(event) =>
+                          setIntervalDraft((prev) => ({ ...prev, oilInterval: event.target.value }))
+                        }
+                      />
+                    </label>
+
+                    <label className="settingsField">
+                      <span className="settingsLabel">Oil Change (Months)</span>
+                      <input
+                        type="number"
+                        min="0.25"
+                        step="0.25"
+                        value={intervalDraft.oilIntervalMonths}
+                        onChange={(event) =>
+                          setIntervalDraft((prev) => ({
+                            ...prev,
+                            oilIntervalMonths: event.target.value
+                          }))
+                        }
+                      />
+                    </label>
+                  </div>
+
+                  <div className="buttonRow settingsActions settingsIntervalActions">
+                    <button type="button" className="optionButton active" onClick={handleSaveServiceIntervals}>
+                      Save Service Intervals
+                    </button>
+                  </div>
+                  <p className="tiny settingsHint">
+                    Values stay at their current defaults until you manually save changes here.
+                  </p>
+                </div>
+              </section>
+
+              <section className="card settingsCard">
+                <div className="settingsHead">
                   <h3>Notifications</h3>
                   <p className="tiny">Connect your installed PWA to iPhone notifications.</p>
                 </div>
@@ -2882,7 +3127,7 @@ export default function AutoTrackApp() {
                 Current mileage
                 <input
                   type="number"
-                  min={selectedVehicle.odometer}
+                  min="0"
                   step="1"
                   value={odometerDraft}
                   onChange={(event) => setOdometerDraft(event.target.value)}
@@ -2890,7 +3135,7 @@ export default function AutoTrackApp() {
                 />
               </label>
               <div className="modalActions">
-                <button type="button" className="modalButton secondary" onClick={() => setOdometerEditorOpen(false)}>
+                <button type="button" className="modalButton secondary" onClick={closeOdometerEditor}>
                   Cancel
                 </button>
                 <button type="button" className="modalButton primary" onClick={handleSaveOdometer}>
@@ -2923,6 +3168,35 @@ export default function AutoTrackApp() {
                   No
                 </button>
                 <button type="button" className="modalButton primary" onClick={handleConfirmMaintenanceReset}>
+                  Yes
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {intervalConfirm && (
+          <div className="modalOverlay" role="presentation">
+            <div className="modalCard" role="dialog" aria-modal="true" aria-labelledby="interval-modal-title">
+              <h3 id="interval-modal-title" className="modalTitle">Confirm Service Intervals</h3>
+              <p className="modalMessage">
+                Save new intervals for {intervalConfirm.vehicleName}?
+              </p>
+              <p className="modalSubtext">
+                Tire rotation: {formatMileage(intervalConfirm.tireInterval)} /{" "}
+                {formatMonths(intervalConfirm.tireIntervalMonths)} · Oil change:{" "}
+                {formatMileage(intervalConfirm.oilInterval)} /{" "}
+                {formatMonths(intervalConfirm.oilIntervalMonths)}
+              </p>
+              <div className="modalActions">
+                <button
+                  type="button"
+                  className="modalButton secondary"
+                  onClick={() => setIntervalConfirm(null)}
+                >
+                  No
+                </button>
+                <button type="button" className="modalButton primary" onClick={handleConfirmServiceIntervals}>
                   Yes
                 </button>
               </div>
